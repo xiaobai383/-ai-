@@ -1,0 +1,31 @@
+model:
+  name: deepseek-v4-flash
+  base_url: https://api.deepseek.com/v1
+
+limits:
+  max_file_size_mb: 5
+  max_tool_calls_per_request: 15
+  max_tokens_per_request: 50000
+  max_cost_per_request_yuan: 0.5
+
+paths:
+  allowed:
+    - data/
+    - output/
+  blocked_patterns:
+    - .env
+    - "*.key"
+    - "*.pem"
+    - id_rsa*
+    - "*.pfx"
+    - "*.p12"
+
+redaction:
+  enabled: true
+  rules:
+    phone: true
+    email: true
+    id_card: true
+    api_key: true
+    password_field: true
+    absolute_path: true
