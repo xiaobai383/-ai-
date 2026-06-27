@@ -1,0 +1,34 @@
+name: risk_analysis
+description: 风险分析工作流 - 识别文档中的潜在风险
+steps:
+  - name: preprocess
+    action: parse_file
+    params:
+      extract_sections: true
+  - name: detect_sensitive
+    action: detect_sensitive
+    params:
+      rules: [phone, email, id_card, api_key, password]
+  - name: llm_call
+    action: invoke_llm
+    params:
+      prompt_template: |
+        请分析以下文档中的潜在风险，包括：
+        1. 法律/合规风险
+        2. 财务风险
+        3. 技术风险
+        4. 人员风险
+        5. 时间风险
+
+        对每个风险请评估：
+        - 风险等级（高/中/低）
+        - 影响范围
+        - 建议的缓解措施
+
+        文档内容：
+        {context}
+  - name: postprocess
+    action: format_output
+    params:
+      format: markdown
+      include_risk_matrix: true

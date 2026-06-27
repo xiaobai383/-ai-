@@ -1,0 +1,29 @@
+name: extract_todos
+description: 待办提取工作流 - 从文档中提取所有待办事项
+steps:
+  - name: preprocess
+    action: parse_file
+    params:
+      extract_sections: true
+  - name: detect_sensitive
+    action: detect_sensitive
+    params:
+      rules: [phone, email, id_card]
+  - name: llm_call
+    action: invoke_llm
+    params:
+      prompt_template: |
+        请从以下文档中提取所有待办事项，包括：
+        1. 明确标注的TODO/待办
+        2. 隐含的行动项
+        3. 需要跟进的事项
+        4. 截止日期（如有）
+
+        请以清单格式输出。
+
+        文档内容：
+        {context}
+  - name: postprocess
+    action: format_output
+    params:
+      format: markdown

@@ -58,6 +58,16 @@ python app.py
 
 访问 http://127.0.0.1:7860
 
+### 方式四：FastAPI 服务（v0.2 新增）
+
+```bash
+# 启动 FastAPI 服务
+python app.py --api
+
+# API 文档
+# http://127.0.0.1:8000/docs
+```
+
 ## 运行测试
 
 ```bash
@@ -85,6 +95,13 @@ python app.py --test
 - 🛑 **熔断保护** — token / 费用超限自动中止
 - 🔒 **路径白名单** — 防止读取敏感系统文件
 
+### v0.2 新增功能
+
+- 🌐 **FastAPI 接口** — RESTful API，支持桌面端/Web 前端接入
+- 📋 **工作流模板** — YAML 定义可复用的工作流（总结、待办提取、风险分析、会议纪要）
+- ⚙️ **用户偏好记忆** — 保存用户的默认设置和常用模板
+- 📝 **多格式输出** — 支持 Markdown、纯文本、JSON、HTML 输出
+
 ## 配置
 
 编辑 `config.yaml` 可调整：
@@ -106,25 +123,43 @@ paths:
   blocked_patterns:            # 禁止访问的文件
     - .env
     - "*.key"
+
+# v0.2 新增配置
+output:
+  format: markdown             # 默认输出格式
+
+workflow:
+  templates_dir: workflows     # 工作流模板目录
+
+api:
+  host: 127.0.0.1              # FastAPI 服务地址
+  port: 8000                   # FastAPI 服务端口
 ```
 
 ## 项目结构
 
 ```
-├── app.py                  # 入口
+├── app.py                  # 入口（--api 启动 FastAPI）
 ├── config.yaml             # 应用配置
 ├── Dockerfile              # Docker 镜像
 ├── docker-compose.yml      # Docker 编排
 ├── setup.bat / setup.sh    # 一键安装脚本
 ├── src/
 │   ├── agent/              # Agent 编排 + System Prompt
+│   ├── api/                # FastAPI 接口（v0.2 新增）
 │   ├── tools/              # 文件操作、脱敏、成本估算
-│   ├── workflow/           # 预处理、上传策略、后处理
+│   ├── workflow/           # 预处理、上传策略、后处理、模板
+│   ├── preferences/        # 用户偏好管理（v0.2 新增）
 │   ├── observability/      # RunLog 可观测
 │   ├── ui/                 # Gradio 界面
 │   └── config.py           # 配置加载
-├── tests/                  # pytest 测试（128 个用例）
-└── data/                   # 测试数据和缓存
+├── workflows/              # 工作流模板目录（v0.2 新增）
+│   ├── summarize.yaml      # 文档总结模板
+│   ├── extract_todos.yaml  # 待办提取模板
+│   ├── risk_analysis.yaml  # 风险分析模板
+│   └── meeting_notes.yaml  # 会议纪要模板
+├── tests/                  # pytest 测试（150+ 用例）
+└── data/                   # 测试数据、缓存、偏好存储
 ```
 
 ## 技术栈
@@ -132,14 +167,47 @@ paths:
 - **Agent 框架**: LangChain
 - **模型**: DeepSeek V4 Flash（也支持 OpenAI / 通义千问等兼容 API）
 - **UI**: Gradio
+- **API**: FastAPI + Uvicorn（v0.2 新增）
 - **测试**: pytest
 - **部署**: Docker / Docker Compose
+
+## API 使用示例（v0.2）
+
+### 执行任务
+
+```bash
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "总结这篇文档的要点",
+    "mode": "privacy_enhanced",
+    "files": ["data/test_sample.md"]
+  }'
+```
+
+### 使用工作流模板
+
+```bash
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "分析会议记录",
+    "workflow_template": "meeting_notes",
+    "files": ["data/meeting.md"]
+  }'
+```
+
+### 列出可用模板
+
+```bash
+curl http://127.0.0.1:8000/templates
+```
 
 ## 版本路线
 
 | 版本 | 目标 |
 |------|------|
 | v0.1 ✅ | 可控上传 + 文档处理闭环 + RunLog |
-| v0.2 | FastAPI + 工作流模板 + 用户偏好记忆 |
+| v0.2 ✅ | FastAPI + 工作流模板 + 用户偏好记忆 + 多格式输出 |
 | v0.3 | 文件夹监听、定时任务、批量处理 |
 | v1.0 | 向量检索、本地模型兜底、仪表盘 |

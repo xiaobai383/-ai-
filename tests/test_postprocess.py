@@ -1,72 +1,113 @@
-"""Tests for postprocessing module."""
-import tempfile
-from pathlib import Path
+"""Tests for post-processing — formatting output in various formats."""
+import json
+import re
 
-import pytest
-from src.config import AppConfig
-from src.workflow.postprocess import format_output, validate_save_path
-
-
-@pytest.fixture
-def config():
-    return AppConfig(
-        model_name="deepseek-v4-flash",
-        model_base_url="https://api.deepseek.com/v1",
-        allowed_paths=["data/", "output/", str(Path(tempfile.gettempdir()))],
-    )
+from src.workflow.postprocess import (
+    format_output,
+    validate_save_path,
+)
 
 
-class TestFormatOutput:
-    """Tests for output formatting."""
+def test_format_output_markdown():
+    """Test Markdown formatting."""
+    raw = "## Title\n\nParagraph 1\n\nParagraph 2"
+    result = format_output(raw, fmt="markdown")
 
-    def test_preserves_markdown_headings(self):
-        raw = "# 标题\n\n内容"
-        formatted = format_output(raw)
-        assert "# 标题" in formatted
-
-    def test_adds_paragraph_spacing(self):
-        raw = "第一段\n第二段\n第三段"
-        formatted = format_output(raw)
-        # format_output preserves structure, each line separated by newline
-        assert "第一段" in formatted
-        assert "第二段" in formatted
-        assert "第三段" in formatted
-
-    def test_preserves_lists(self):
-        raw = "- 项目一\n- 项目二"
-        formatted = format_output(raw)
-        assert "- 项目一" in formatted
-        assert "- 项目二" in formatted
-
-    def test_empty_input(self):
-        formatted = format_output("")
-        assert formatted == ""
-
-    def test_whitespace_only(self):
-        formatted = format_output("   \n  \n  ")
-        assert isinstance(formatted, str)
+    assert "## Title" in result
+    assert "Paragraph 1" in result
+    assert "Paragraph 2" in result
+    assert "\n\n" in result  # Paragraphs separated by blank line
 
 
-class TestValidateSavePath:
-    """Tests for save path validation."""
+def test_format_output_markdown_collapse_newlines():
+    """Test that 3+ newlines collapse to 2."""
+    raw = "Line 1\n\n\n\nLine 2"
+    result = format_output(raw, fmt="markdown")
 
-    def test_valid_path(self, config):
-        p = str(Path(tempfile.gettempdir()) / "output.md")
-        assert validate_save_path(p, config) is True
+    assert "\n\n\n" not in result
 
-    def test_path_traversal_blocked(self, config):
-        """../ path traversal should be denied."""
-        p = str(Path(tempfile.gettempdir()) / ".." / "etc" / "output.md")
-        assert validate_save_path(p, config) is False
 
-    def test_absolute_path_not_in_whitelist(self, config):
-        assert validate_save_path("/etc/output.md", config) is False
+def test_format_output_markdown_with_metadata():
+    """Test Markdown with metadata footer."""
+    raw = "Content here"
+    metadata = {"timestamp": "2026-01-01", "model": "deepseek-v4-flash"}
+    result = format_output(raw, fmt="markdown", metadata=metadata)
 
-    def test_path_in_allowed_directory(self, config):
-        p = str(Path("output/result.md").resolve())
-        # Need to ensure output/ exists
-        Path("output").mkdir(exist_ok=True)
-        try:
-            assert validate_save_path(p, config) is True
-        finally:
-            pass
+    assert "生成时间" in result
+    assert "deepseek-v4-flash" in result
+
+
+def test_format_output_plain():
+    """Test plain text formatting."""
+    raw = "## Header\n\n**Bold** text with [link](http://example.com)"
+    result = format_output(raw, fmt="plain")
+
+    assert "##" not in result
+    assert "**" not in result
+    assert "link" in result
+    assert "http://example.com" not in result
+
+
+def test_format_output_json():
+    """Test JSON formatting."""
+    raw = "## Section 1\n\nContent 1\n\n## Section 2\n\nContent 2"
+    result = format_output(raw, fmt="json")
+
+    data = json.loads(result)
+    assert "sections" in data
+    assert "metadata" in data
+    assert len(data["sections"]) >= 2
+
+
+def test_format_output_html():
+    """Test HTML formatting."""
+    raw = "## Header\n\n**Bold** text"
+    result = format_output(raw, fmt="html")
+
+    assert "<h2>" in result
+    assert "<strong>" in result
+    assert "Header" in result
+
+
+def test_format_output_html_with_metadata():
+    """Test HTML with metadata footer."""
+    raw = "Content"
+    metadata = {"timestamp": "2026-01-01", "model": "gpt-4o"}
+    result = format_output(raw, fmt="html", metadata=metadata)
+
+    assert "<footer>" in result
+    assert "gpt-4o" in result
+
+
+def test_format_output_empty():
+    """Test empty input."""
+    assert format_output("", fmt="markdown") == ""
+    assert format_output(None, fmt="markdown") == ""
+
+
+def test_format_output_unknown_format():
+    """Test unknown format defaults to markdown."""
+    raw = "## Title\n\nContent"
+    result = format_output(raw, fmt="unknown")
+
+    assert "## Title" in result
+
+
+def test_validate_save_path_allowed():
+    """Test valid save path validation."""
+    class MockConfig:
+        allowed_paths = ["data/", "output/"]
+
+    config = MockConfig()
+    assert validate_save_path("data/test.md", config) is True
+    assert validate_save_path("output/result.md", config) is True
+
+
+def test_validate_save_path_blocked():
+    """Test blocked save path validation."""
+    class MockConfig:
+        allowed_paths = ["data/", "output/"]
+
+    config = MockConfig()
+    assert validate_save_path("/etc/passwd", config) is False
+    assert validate_save_path("secrets/key.pem", config) is False

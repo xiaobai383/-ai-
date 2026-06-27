@@ -1,0 +1,7 @@
+description: A test template
+name: test_template
+steps:
+- action: parse_file
+  name: preprocess
+- action: invoke_llm
+  name: llm_call

@@ -1,0 +1,32 @@
+name: summarize
+description: 文档总结工作流 - 提取要点、待办、风险点
+steps:
+  - name: preprocess
+    action: parse_file
+    params:
+      extract_sections: true
+  - name: detect_sensitive
+    action: detect_sensitive
+    params:
+      rules: [phone, email, id_card, api_key]
+  - name: upload_policy
+    action: decide_strategy
+    params:
+      default_mode: privacy_enhanced
+  - name: llm_call
+    action: invoke_llm
+    params:
+      prompt_template: |
+        请分析以下文档并提供：
+        1. 核心要点（3-5条）
+        2. 待办事项
+        3. 潜在风险点
+        4. 关键数据/指标
+
+        文档内容：
+        {context}
+  - name: postprocess
+    action: format_output
+    params:
+      format: markdown
+      include_metadata: true

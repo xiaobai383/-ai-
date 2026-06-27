@@ -27,6 +27,13 @@ class AppConfig:
     redaction_enabled: bool = True
     redaction_rules: Dict[str, bool] = field(default_factory=dict)
 
+    # v0.2 additions
+    default_output_format: str = "markdown"
+    workflows_dir: str = "workflows"
+    preferences_dir: str = "data/preferences"
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+
     @classmethod
     def from_yaml_and_env(cls, yaml_path: str | None = None) -> "AppConfig":
         """Load config from YAML file and override with environment variables.
@@ -77,6 +84,20 @@ class AppConfig:
                 for k, v in redaction.get("rules", {}).items()
                 if isinstance(v, bool)
             }
+
+            # v0.2 additions
+            output_cfg = raw.get("output", {})
+            config.default_output_format = output_cfg.get("format", config.default_output_format)
+
+            workflow_cfg = raw.get("workflow", {})
+            config.workflows_dir = workflow_cfg.get("templates_dir", config.workflows_dir)
+
+            preferences_cfg = raw.get("preferences", {})
+            config.preferences_dir = preferences_cfg.get("dir", config.preferences_dir)
+
+            api_cfg = raw.get("api", {})
+            config.api_host = api_cfg.get("host", config.api_host)
+            config.api_port = api_cfg.get("port", config.api_port)
 
         # Environment variable overrides
         config.model_name = os.environ.get("MODEL_NAME", config.model_name)

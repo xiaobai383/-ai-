@@ -1,0 +1,34 @@
+name: meeting_notes
+description: 会议纪要工作流 - 整理会议内容生成结构化纪要
+steps:
+  - name: preprocess
+    action: parse_file
+    params:
+      extract_sections: true
+  - name: detect_sensitive
+    action: detect_sensitive
+    params:
+      rules: [phone, email, id_card]
+  - name: upload_policy
+    action: decide_strategy
+    params:
+      default_mode: privacy_enhanced
+  - name: llm_call
+    action: invoke_llm
+    params:
+      prompt_template: |
+        请将以下会议记录整理为结构化纪要，包括：
+        1. 会议基本信息（时间、地点、参会人）
+        2. 讨论议题
+        3. 决议事项
+        4. 待办事项（含负责人和截止日期）
+        5. 遗留问题
+        6. 下次会议安排
+
+        文档内容：
+        {context}
+  - name: postprocess
+    action: format_output
+    params:
+      format: markdown
+      template: meeting_minutes

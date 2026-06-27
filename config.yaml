@@ -29,3 +29,17 @@ redaction:
     api_key: true
     password_field: true
     absolute_path: true
+
+# v0.2 additions
+output:
+  format: markdown  # markdown, plain, json, html
+
+workflow:
+  templates_dir: workflows
+
+preferences:
+  dir: data/preferences
+
+api:
+  host: 127.0.0.1
+  port: 8000
