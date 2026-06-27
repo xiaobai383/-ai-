@@ -1,4 +1,6 @@
 .env
+.reasonix/
+reasonix.toml
 data/cache/*
 data/logs/*
 __pycache__/
