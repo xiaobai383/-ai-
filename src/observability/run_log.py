@@ -49,6 +49,7 @@ class RunLog:
     model: str
     steps: List[StepLog] = field(default_factory=list)
     result_path: str | None = None
+    fallback: bool = False  # v1.0: whether local fallback was used
 
     @property
     def total_tokens_in(self) -> int:
@@ -76,6 +77,7 @@ class RunLog:
                     "total_tokens_out": self.total_tokens_out,
                     "total_cost_yuan": self.total_cost_yuan,
                     "result_path": self.result_path,
+                    "fallback": self.fallback,
                 },
                 ensure_ascii=False,
             )
@@ -97,6 +99,7 @@ class RunLog:
             mode=header["mode"],
             model=header["model"],
             result_path=header.get("result_path"),
+            fallback=header.get("fallback", False),
         )
 
         for line in lines[1:]:
@@ -117,3 +120,22 @@ class RunLog:
                 )
 
         return run
+
+    def save_to_disk(self, path) -> Path:
+        """Persist this RunLog as a JSONL file.
+
+        Args:
+            path: Target file path (directory or full path).
+
+        Returns:
+            Path of the written file.
+        """
+        p = Path(path)
+        if p.is_dir() or str(p).endswith("/") or str(p).endswith("\\"):
+            p.mkdir(parents=True, exist_ok=True)
+            p = p / f"{self.run_id}.jsonl"
+        else:
+            p.parent.mkdir(parents=True, exist_ok=True)
+
+        p.write_text(self.to_jsonl(), encoding="utf-8")
+        return p

@@ -1,8 +1,14 @@
 .env
 .reasonix/
+.workbuddy/
 reasonix.toml
+AGENTS.md
+venv/
 data/cache/*
 data/logs/*
+data/chroma*/
+data/test_*/
+output/
 __pycache__/
 *.pyc
 .pytest_cache/

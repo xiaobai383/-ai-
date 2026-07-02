@@ -8,3 +8,11 @@ pytest>=7.0.0
 fastapi>=0.115.0
 uvicorn>=0.34.0
 python-multipart>=0.0.20
+# v0.3: watch / scheduler / notifications
+watchdog>=6.0.0
+APScheduler>=3.10.0
+plyer>=2.0.0
+# v1.0: knowledge retrieval
+chromadb>=0.5.0
+# v1.0: dashboard charts
+plotly>=5.18.0

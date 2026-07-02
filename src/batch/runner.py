@@ -98,7 +98,6 @@ class BatchRunner:
                     config=self.config,
                     llm=llm,
                     auto_confirm=auto_confirm,
-                    suppress_notification=True,
                 )
 
                 report.runs.append(run_log)
