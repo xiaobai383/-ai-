@@ -1,4 +1,4 @@
-"""Post-processing — format LLM output and validate save paths."""
+"""后处理 —— 格式化 LLM 输出并验证保存路径。"""
 import json
 import re
 from pathlib import Path
@@ -6,21 +6,21 @@ from typing import Any, Dict
 
 
 def format_output(raw_output: str, fmt: str = "markdown", metadata: Dict[str, Any] | None = None) -> str:
-    """Clean and format raw LLM output.
+    """清理并格式化 LLM 原始输出。
 
-    Supports multiple output formats:
-    - markdown: Standard Markdown formatting
-    - plain: Plain text without formatting
-    - json: Structured JSON output
-    - html: Basic HTML formatting
+    支持多种输出格式：
+    - markdown: 标准 Markdown 格式
+    - plain: 无格式纯文本
+    - json: 结构化 JSON 输出
+    - html: 基础 HTML 格式
 
-    Args:
-        raw_output: Raw text from LLM.
-        fmt: Output format — 'markdown', 'plain', 'json', 'html'.
-        metadata: Optional metadata to include in output.
+    参数：
+        raw_output: LLM 返回的原始文本。
+        fmt: 输出格式 —— 'markdown'、'plain'、'json'、'html'。
+        metadata: 可选的元数据，附加到输出中。
 
-    Returns:
-        Formatted text.
+    返回：
+        格式化后的文本。
     """
     if not raw_output or not raw_output.strip():
         return ""
@@ -38,26 +38,26 @@ def format_output(raw_output: str, fmt: str = "markdown", metadata: Dict[str, An
 
 
 def _format_markdown(text: str, metadata: Dict[str, Any] | None = None) -> str:
-    """Format as standard Markdown."""
+    """格式化为标准 Markdown。"""
     lines = text.strip().split("\n")
     result: list[str] = []
 
     for line in lines:
         stripped = line.strip()
         if not stripped:
-            # Empty line = paragraph break
+            # 空行 = 段落分隔
             if result and result[-1] != "":
                 result.append("")
         else:
             result.append(stripped)
 
-    # Join and normalize: ensure paragraphs separated by \n\n
+    # 拼接并规范化：确保段落之间以 \n\n 分隔
     formatted = "\n".join(result)
-    # Collapse 3+ newlines into 2
+    # 将 3 个及以上的连续换行压缩为 2 个
     while "\n\n\n" in formatted:
         formatted = formatted.replace("\n\n\n", "\n\n")
 
-    # Add metadata footer if provided
+    # 如果提供了元数据，则添加页脚
     if metadata:
         formatted += "\n\n---\n"
         formatted += f"*生成时间: {metadata.get('timestamp', 'N/A')}*\n"
@@ -70,27 +70,27 @@ def _format_markdown(text: str, metadata: Dict[str, Any] | None = None) -> str:
 
 
 def _format_plain(text: str) -> str:
-    """Format as plain text — strip Markdown formatting."""
-    # Remove Markdown headers
+    """格式化为纯文本 —— 去除 Markdown 格式标记。"""
+    # 移除 Markdown 标题
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-    # Remove bold/italic markers
+    # 移除粗体/斜体标记
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
-    # Remove links, keep text
+    # 移除链接，保留文本
     text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
-    # Remove code blocks
+    # 移除代码块
     text = re.sub(r'```[^`]*```', '', text, flags=re.DOTALL)
-    # Remove inline code
+    # 移除行内代码
     text = re.sub(r'`([^`]+)`', r'\1', text)
-    # Remove horizontal rules
+    # 移除水平分割线
     text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
-    # Clean up extra whitespace
+    # 清理多余的空白
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
 
 def _format_json(text: str, metadata: Dict[str, Any] | None = None) -> str:
-    """Format as structured JSON."""
-    # Try to extract sections from Markdown
+    """格式化为结构化 JSON。"""
+    # 尝试从 Markdown 中提取章节
     sections = []
     current_section = {"title": "Content", "content": ""}
 
@@ -118,22 +118,22 @@ def _format_json(text: str, metadata: Dict[str, Any] | None = None) -> str:
 
 
 def _format_html(text: str, metadata: Dict[str, Any] | None = None) -> str:
-    """Format as basic HTML."""
+    """格式化为基础 HTML。"""
     html = text
 
-    # Convert headers
+    # 转换标题
     html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
     html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
     html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
 
-    # Convert bold/italic
+    # 转换粗体/斜体
     html = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', html)
     html = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', html)
 
-    # Convert lists
+    # 转换列表
     html = re.sub(r'^- (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
 
-    # Wrap in paragraphs
+    # 用段落包裹
     paragraphs = html.split('\n\n')
     formatted_paragraphs = []
     for p in paragraphs:
@@ -144,7 +144,7 @@ def _format_html(text: str, metadata: Dict[str, Any] | None = None) -> str:
 
     html = '\n'.join(formatted_paragraphs)
 
-    # Add metadata if provided
+    # 如果提供了元数据，则添加页脚
     if metadata:
         html += '\n<footer>\n'
         html += f'<p><em>生成时间: {metadata.get("timestamp", "N/A")}</em></p>\n'
@@ -156,18 +156,18 @@ def _format_html(text: str, metadata: Dict[str, Any] | None = None) -> str:
 
 
 def validate_save_path(path_str: str, config) -> bool:
-    """Validate that a save path is safe.
+    """验证保存路径是否安全。
 
-    Checks:
-    - No path traversal (../)
-    - Path resolves within allowed directories
+    检查项：
+    - 无路径穿越（../）
+    - 路径解析后在允许的目录范围内
 
-    Args:
-        path_str: Proposed file path.
-        config: AppConfig with allowed_paths.
+    参数：
+        path_str: 提议的文件路径。
+        config: 包含 allowed_paths 的 AppConfig。
 
-    Returns:
-        True if path is safe, False otherwise.
+    返回：
+        如果路径安全则返回 True，否则返回 False。
     """
     try:
         path = Path(path_str).resolve()
@@ -176,9 +176,9 @@ def validate_save_path(path_str: str, config) -> bool:
 
     path_str_resolved = str(path)
 
-    # Check path traversal attempt
+    # 检查路径穿越尝试
     if ".." in Path(path_str).parts:
-        # The original path contains .. — check if resolved path is still safe
+        # 原始路径包含 .. —— 检查解析后的路径是否仍然安全
         pass
 
     for allowed in config.allowed_paths:

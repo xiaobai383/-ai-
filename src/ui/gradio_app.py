@@ -1,4 +1,4 @@
-"""Gradio UI for the Personal AI Workflow Assistant — v1.0 4-tab layout."""
+"""个人 AI 工作流助手 Gradio 界面 — v1.0 四标签页布局。"""
 from typing import List
 
 import gradio as gr
@@ -8,13 +8,13 @@ from src.config import AppConfig
 
 
 def build_ui(config: AppConfig):
-    """Build and return the Gradio Blocks UI with 4 tabs.
+    """构建并返回包含四个标签页的 Gradio Blocks 界面。
 
     Args:
-        config: Application configuration.
+        config: 应用配置。
 
     Returns:
-        A gradio.Blocks instance ready to launch.
+        一个准备启动的 gradio.Blocks 实例。
     """
     css = """
     .upload-preview { background: #f5f5f5; padding: 12px; border-radius: 8px; font-family: monospace; }
@@ -85,7 +85,7 @@ def build_ui(config: AppConfig):
                         interactive=False,
                     )
 
-                # ── Event handlers ──
+                # ── 事件处理 ──
 
                 def on_file_upload(files):
                     if not files:
@@ -146,7 +146,7 @@ def build_ui(config: AppConfig):
                             auto_confirm=True,
                         )
 
-                        # Persist the RunLog for replay
+                        # 持久化 RunLog 以支持回放
                         try:
                             run_log.save_to_disk("data/logs")
                         except Exception:
@@ -229,7 +229,7 @@ def build_ui(config: AppConfig):
                 replay_output = gr.HTML(label="执行历史")
 
                 def _render_replay(search, mode_filter, status_filter):
-                    """Render replay timeline as HTML."""
+                    """以 HTML 形式渲染执行回放时间线。"""
                     from src.replay.loader import RunLogLoader
 
                     loader = RunLogLoader()
@@ -273,7 +273,7 @@ def build_ui(config: AppConfig):
                     outputs=[replay_output],
                 )
 
-                # Load replay on tab switch (initial load via page load triggers refresh)
+                # 切换标签页时加载回放（初始通过页面加载触发刷新）
                 replay_search.change(
                     fn=_render_replay,
                     inputs=[replay_search, replay_mode_filter, replay_status_filter],
@@ -540,7 +540,7 @@ def build_ui(config: AppConfig):
 
 
 def _load_template_list(config: AppConfig) -> str:
-    """Load and format available workflow templates."""
+    """加载并格式化可用的工作流模板。"""
     try:
         from src.workflow.templates import list_templates
         templates = list_templates()
@@ -553,7 +553,7 @@ def _load_template_list(config: AppConfig) -> str:
 
 
 def _load_preferences(config: AppConfig) -> str:
-    """Load and format user preferences."""
+    """加载并格式化用户偏好设置。"""
     try:
         from src.preferences.manager import load
         prefs = load()
@@ -569,10 +569,10 @@ def _load_preferences(config: AppConfig) -> str:
 
 
 def launch_ui(config: AppConfig | None = None):
-    """Launch the Gradio UI.
+    """启动 Gradio 界面。
 
     Args:
-        config: Optional AppConfig. Loads from default locations if None.
+        config: 可选的 AppConfig。如果为 None，则从默认位置加载。
     """
     if config is None:
         config = AppConfig.from_yaml_and_env()

@@ -1,7 +1,7 @@
-"""Ollama embedding wrapper — nomic-embed-text via OpenAI-compatible API.
+"""Ollama embedding 封装 — 通过 OpenAI 兼容 API 调用 nomic-embed-text。
 
-ponytail: thin wrapper around requests, no async. Upgrade path: use ollama Python
-package for richer error handling and streaming if latency becomes an issue.
+ponytail: 基于 requests 的轻量封装，无异步。升级路径：如需更丰富的错误处理和
+流式支持，可改用 ollama Python 包。
 """
 import logging
 import time
@@ -12,13 +12,13 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "nomic-embed-text"
-DEFAULT_TIMEOUT = 30  # seconds
+DEFAULT_TIMEOUT = 30  # 秒
 
 
 class OllamaEmbedder:
-    """Embed text via a local Ollama instance.
+    """通过本地 Ollama 实例为文本生成 embedding。
 
-    Usage:
+    用法:
         embedder = OllamaEmbedder()
         if embedder.is_available():
             vec = embedder.embed("hello world")
@@ -35,13 +35,13 @@ class OllamaEmbedder:
         self._timeout = timeout
         self._available: Optional[bool] = None
         self._last_check: float = 0.0
-        self._check_interval: float = 30.0  # seconds between availability probes
+        self._check_interval: float = 30.0  # 两次可用性探测之间的间隔秒数
 
     def is_available(self) -> bool:
-        """Check if Ollama is reachable and the model is pullable/loaded.
+        """检查 Ollama 是否可达且模型可拉取/已加载。
 
-        Caches the result for self._check_interval seconds to avoid
-        hammering Ollama on every embed call.
+        将结果缓存 self._check_interval 秒，避免每次 embed 调用都频繁请求
+        Ollama。
         """
         now = time.time()
         if self._available is not None and (now - self._last_check) < self._check_interval:
@@ -55,7 +55,7 @@ class OllamaEmbedder:
                 return False
 
             models = [m.get("name", "") for m in resp.json().get("models", [])]
-            # Model names may include tag suffix like "nomic-embed-text:latest"
+            # 模型名称可能包含标签后缀，如 "nomic-embed-text:latest"
             available = any(self._model in m for m in models)
             self._available = available
             self._last_check = now
@@ -66,9 +66,9 @@ class OllamaEmbedder:
             return False
 
     def embed(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for a single text.
+        """为单个文本生成 embedding。
 
-        Returns None on failure — callers must handle gracefully.
+        失败时返回 None — 调用者必须妥善处理。
         """
         if not self.is_available():
             logger.warning("Ollama not available, skipping embed")
@@ -88,5 +88,5 @@ class OllamaEmbedder:
             return None
 
     def embed_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
-        """Embed multiple texts, one at a time (Ollama batch API is model-dependent)."""
+        """逐个为多个文本生成 embedding（Ollama 批量 API 因模型而异）。"""
         return [self.embed(t) for t in texts]

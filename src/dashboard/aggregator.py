@@ -1,7 +1,7 @@
-"""Dashboard data aggregator — compute stats from RunLog JSONL files.
+"""仪表盘数据汇总器 — 从 RunLog JSONL 文件计算统计数据。
 
-ponytail: O(n) scan of all log files per request. Upgrade path: cache stats
-at save time (incremental update) when log count exceeds ~5,000.
+ponytail：每次请求对所有日志文件进行 O(n) 扫描。升级路径：当日志数量超过
+约 5,000 时，在保存时缓存统计数据（增量更新）。
 """
 import logging
 from dataclasses import dataclass, field
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DailyStats:
-    """Per-day aggregated stats."""
+    """每日汇总统计。"""
     date: str                     # YYYY-MM-DD
     task_count: int = 0
     tokens_in: int = 0
@@ -27,7 +27,7 @@ class DailyStats:
 
 @dataclass
 class RunStats:
-    """Aggregate statistics across all RunLogs."""
+    """所有 RunLog 的汇总统计。"""
     total_tasks: int = 0
     successful_tasks: int = 0
     failed_tasks: int = 0
@@ -37,36 +37,36 @@ class RunStats:
     total_duration_ms: int = 0
     fallback_count: int = 0
 
-    # Distributions
+    # 分布
     mode_distribution: Dict[str, int] = field(default_factory=dict)
     model_distribution: Dict[str, int] = field(default_factory=dict)
 
-    # Time series
+    # 时间序列
     daily: List[DailyStats] = field(default_factory=list)
 
-    # Recent tasks
+    # 最近任务
     recent_tasks: List[dict] = field(default_factory=list)
 
 
 class DashboardAggregator:
-    """Aggregate RunLog stats with optional time range filtering.
+    """汇总 RunLog 统计数据，支持可选时间范围过滤。
 
-    Usage:
+    用法：
         agg = DashboardAggregator("data/logs")
-        stats = agg.aggregate(days=7)  # last 7 days
+        stats = agg.aggregate(days=7)  # 最近 7 天
     """
 
     def __init__(self, logs_dir: str = "data/logs"):
         self._logs_dir = Path(logs_dir)
 
     def aggregate(self, days: int = 7) -> RunStats:
-        """Compute stats from all logs, optionally filtered to last N days.
+        """从所有日志计算统计数据，可选过滤最近 N 天。
 
-        Args:
-            days: Only include logs from the last N days. 0 = all time.
+        参数：
+            days：只包含最近 N 天的日志。0 = 全部时间。
 
-        Returns:
-            RunStats aggregate.
+        返回：
+            RunStats 汇总。
         """
         cutoff = None
         if days > 0:
@@ -77,7 +77,7 @@ class DashboardAggregator:
         daily_map: Dict[str, DailyStats] = {}
 
         for fp in files:
-            # Determine file date from mtime
+            # 从文件修改时间确定文件日期
             try:
                 mtime = datetime.fromtimestamp(fp.stat().st_mtime)
             except OSError:
@@ -113,15 +113,15 @@ class DashboardAggregator:
             if run_log.fallback:
                 stats.fallback_count += 1
 
-            # Mode distribution
+            # 模式分布
             mode = run_log.mode or "unknown"
             stats.mode_distribution[mode] = stats.mode_distribution.get(mode, 0) + 1
 
-            # Model distribution
+            # 模型分布
             model = run_log.model or "unknown"
             stats.model_distribution[model] = stats.model_distribution.get(model, 0) + 1
 
-            # Daily aggregation
+            # 每日汇总
             if date_key not in daily_map:
                 daily_map[date_key] = DailyStats(date=date_key)
             ds = daily_map[date_key]
@@ -131,12 +131,12 @@ class DashboardAggregator:
             ds.cost_yuan += run_log.total_cost_yuan
             ds.duration_ms += step_duration
 
-        # Sort daily stats chronologically
+        # 按时间顺序排列每日统计数据
         stats.daily = sorted(daily_map.values(), key=lambda d: d.date)
 
-        # Recent tasks (last 10)
+        # 最近任务（最近 10 个）
         recent = []
-        for fp in reversed(files[-20:]):  # check last 20, keep 10
+        for fp in reversed(files[-20:]):  # 检查最近 20 个，保留 10 个
             try:
                 run_log = RunLog.from_jsonl(fp)
             except Exception:

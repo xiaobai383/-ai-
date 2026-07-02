@@ -1,63 +1,62 @@
-"""Token counting and cost estimation utilities."""
+"""Token 计数与成本估算工具。"""
 
-# Pricing in CNY per 1M tokens (input, output)
-# USD→CNY rate ~7.2
+# 每百万 token 的定价（输入，输出），单位：人民币
+# 美元→人民币汇率 ~7.2
 MODEL_PRICING: dict[str, tuple[float, float]] = {
     "deepseek-v4-flash": (1.0, 2.0),       # $0.14 / $0.28 per 1M
     "deepseek-v4-pro": (3.1, 6.3),          # $0.435 / $0.87 per 1M
-    # Legacy aliases (deprecated 2026/07/24)
-    "deepseek-chat": (1.0, 2.0),            # → deepseek-v4-flash non-thinking
-    "deepseek-reasoner": (1.0, 2.0),        # → deepseek-v4-flash thinking
+    # 旧版别名（已于 2026/07/24 弃用）
+    "deepseek-chat": (1.0, 2.0),            # → deepseek-v4-flash 非思考模式
+    "deepseek-reasoner": (1.0, 2.0),        # → deepseek-v4-flash 思考模式
     "gpt-4o": (18.0, 54.0),
     "gpt-4o-mini": (0.9, 3.6),
     "qwen-turbo": (2.0, 6.0),
     "qwen-plus": (2.8, 11.2),
 }
 
-# Default pricing when model not in table (conservative estimate)
+# 模型不在价格表中的默认定价（保守估计）
 _DEFAULT_PRICING: tuple[float, float] = (1.0, 2.0)
 
 
 def estimate_tokens(text: str, model: str) -> int:
-    """Estimate token count for a text string.
+    """估算文本字符串的 token 数量。
 
-    Uses tiktoken with cl100k_base encoding as a reasonable approximation
-    for most modern models. Falls back to character-based estimate if
-    tiktoken encoding is unavailable.
+    使用 tiktoken 的 cl100k_base 编码作为大多数现代模型的合理近似。
+    如果 tiktoken 编码不可用，则回退到基于字符的估算。
 
     Args:
-        text: The input text.
-        model: Model name (unused currently, kept for future model-specific logic).
+        text: 输入文本。
+        model: 模型名称（当前未使用，保留用于未来的模型特定逻辑）。
 
     Returns:
-        Estimated number of tokens.
+        估算的 token 数量。
     """
     if not text:
         return 0
 
     try:
         import tiktoken
-        # cl100k_base is the most common modern encoding (GPT-4, DeepSeek, etc.)
+        # cl100k_base 是最常见的现代编码（GPT-4、DeepSeek 等）
         enc = tiktoken.get_encoding("cl100k_base")
         return len(enc.encode(text))
     except Exception:
-        # Fallback: rough character-based estimate
-        # Chinese chars ~1.5 tokens, English ~0.25 tokens per char
+        # 回退方案：基于字符的粗略估算
+        # 中文字符约 1.5 个 token，英文字符约 0.25 个 token
         return max(1, len(text) // 2)
 
 
 def estimate_cost(
     tokens_in: int, tokens_out: int, model: str
 ) -> float:
-    """Estimate cost in CNY for a given token usage.
+    """根据给定的 token 用量估算人民币成本。
 
     Args:
-        tokens_in: Number of input (prompt) tokens.
-        tokens_out: Number of output (completion) tokens.
-        model: Model name to look up pricing.
+        tokens_in: 输入（提示词）token 数量。
+        tokens_out: 输出（补全）token 数量。
+        model: 用于查找定价的模型名称。
 
     Returns:
-        Estimated cost in Chinese Yuan (CNY).
+        估算的人民币（CNY）成本。
     """
     price_in, price_out = MODEL_PRICING.get(model, _DEFAULT_PRICING)
     cost = (tokens_in / 1_000_000) * price_in + (
@@ -71,15 +70,15 @@ def check_limits(
     current_cost_yuan: float,
     limits: dict,
 ) -> tuple[bool, str]:
-    """Check if current usage exceeds configured limits.
+    """检查当前用量是否超出配置的限制。
 
     Args:
-        current_tokens_in: Cumulative input tokens so far.
-        current_cost_yuan: Cumulative cost so far.
-        limits: Dict with 'max_tokens_per_request' and 'max_cost_per_request_yuan'.
+        current_tokens_in: 累计输入 token 数。
+        current_cost_yuan: 累计人民币成本。
+        limits: 包含 'max_tokens_per_request' 和 'max_cost_per_request_yuan' 的字典。
 
     Returns:
-        Tuple of (blocked: bool, reason: str).
+        (是否被阻止: bool, 原因: str) 元组。
     """
     max_tokens = limits.get("max_tokens_per_request")
     max_cost = limits.get("max_cost_per_request_yuan")

@@ -1,4 +1,4 @@
-"""Structured execution logging (RunLog) for auditable agent runs."""
+"""用于可审计代理运行的结构化执行日志（RunLog）。"""
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -8,7 +8,7 @@ from typing import List
 
 @dataclass
 class StepLog:
-    """A single step in an agent run."""
+    """代理运行中的单个步骤。"""
 
     step_id: int
     name: str
@@ -21,7 +21,7 @@ class StepLog:
     status: str = "success"
 
     def to_jsonl(self) -> str:
-        """Serialize this step as a JSONL line."""
+        """将此步骤序列化为 JSONL 行。"""
         return json.dumps(
             {
                 "type": "step",
@@ -41,7 +41,7 @@ class StepLog:
 
 @dataclass
 class RunLog:
-    """Complete log of an agent execution run."""
+    """代理执行运行的完整日志。"""
 
     run_id: str
     user_query: str
@@ -49,7 +49,7 @@ class RunLog:
     model: str
     steps: List[StepLog] = field(default_factory=list)
     result_path: str | None = None
-    fallback: bool = False  # v1.0: whether local fallback was used
+    fallback: bool = False  # v1.0：是否使用了本地回退
 
     @property
     def total_tokens_in(self) -> int:
@@ -64,7 +64,7 @@ class RunLog:
         return sum(s.cost_yuan for s in self.steps)
 
     def to_jsonl(self) -> str:
-        """Serialize the entire run as JSONL (header + one line per step)."""
+        """将整个运行序列化为 JSONL（头部 + 每个步骤一行）。"""
         lines = [
             json.dumps(
                 {
@@ -88,7 +88,7 @@ class RunLog:
 
     @classmethod
     def from_jsonl(cls, path: Path) -> "RunLog":
-        """Deserialize a RunLog from a JSONL file."""
+        """从 JSONL 文件反序列化 RunLog。"""
         content = path.read_text(encoding="utf-8")
         lines = [l for l in content.strip().split("\n") if l]
 
@@ -122,13 +122,13 @@ class RunLog:
         return run
 
     def save_to_disk(self, path) -> Path:
-        """Persist this RunLog as a JSONL file.
+        """将此 RunLog 持久化为 JSONL 文件。
 
         Args:
-            path: Target file path (directory or full path).
+            path: 目标文件路径（目录或完整路径）。
 
         Returns:
-            Path of the written file.
+            已写入文件的路径。
         """
         p = Path(path)
         if p.is_dir() or str(p).endswith("/") or str(p).endswith("\\"):

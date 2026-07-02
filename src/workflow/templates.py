@@ -1,25 +1,25 @@
-"""Workflow template management — load, list, and execute YAML-based workflows."""
+"""工作流模板管理 —— 加载、列出和执行基于 YAML 的工作流。"""
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
 
-# Default templates directory
+# 默认模板目录
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "workflows"
 
 
 def _ensure_templates_dir() -> Path:
-    """Ensure the templates directory exists."""
+    """确保模板目录存在。"""
     TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
     return TEMPLATES_DIR
 
 
 def list_templates() -> List[Dict[str, Any]]:
-    """List all available workflow templates.
+    """列出所有可用的工作流模板。
 
-    Returns:
-        List of template metadata dicts with 'name', 'description', 'steps'.
+    返回：
+        模板元数据字典列表，包含 'name'、'description'、'steps' 字段。
     """
     templates_dir = _ensure_templates_dir()
     templates = []
@@ -40,16 +40,16 @@ def list_templates() -> List[Dict[str, Any]]:
 
 
 def load_workflow_template(name: str) -> Dict[str, Any]:
-    """Load a workflow template by name.
+    """按名称加载工作流模板。
 
-    Args:
-        name: Template name (without .yaml extension).
+    参数：
+        name: 模板名称（不含 .yaml 扩展名）。
 
-    Returns:
-        Template data dict.
+    返回：
+        模板数据字典。
 
-    Raises:
-        FileNotFoundError: If template not found.
+    异常：
+        FileNotFoundError: 如果未找到模板。
     """
     templates_dir = _ensure_templates_dir()
     template_path = templates_dir / f"{name}.yaml"
@@ -60,7 +60,7 @@ def load_workflow_template(name: str) -> Dict[str, Any]:
     with open(template_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
-    # Ensure required fields
+    # 确保必要字段存在
     if "name" not in data:
         data["name"] = name
     if "steps" not in data:
@@ -70,15 +70,15 @@ def load_workflow_template(name: str) -> Dict[str, Any]:
 
 
 def create_template(name: str, description: str, steps: List[Dict[str, Any]]) -> Path:
-    """Create a new workflow template.
+    """创建工作流模板。
 
-    Args:
-        name: Template name.
-        description: Template description.
-        steps: List of step definitions.
+    参数：
+        name: 模板名称。
+        description: 模板描述。
+        steps: 步骤定义列表。
 
-    Returns:
-        Path to the created template file.
+    返回：
+        创建的模板文件路径。
     """
     templates_dir = _ensure_templates_dir()
     template_path = templates_dir / f"{name}.yaml"
@@ -96,13 +96,13 @@ def create_template(name: str, description: str, steps: List[Dict[str, Any]]) ->
 
 
 def delete_template(name: str) -> bool:
-    """Delete a workflow template.
+    """删除工作流模板。
 
-    Args:
-        name: Template name.
+    参数：
+        name: 模板名称。
 
-    Returns:
-        True if deleted, False if not found.
+    返回：
+        如果删除成功返回 True，如果未找到返回 False。
     """
     templates_dir = _ensure_templates_dir()
     template_path = templates_dir / f"{name}.yaml"

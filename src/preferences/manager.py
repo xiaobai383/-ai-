@@ -1,4 +1,4 @@
-"""User preferences management — store and retrieve user settings."""
+"""用户偏好管理 — 存储和读取用户设置。"""
 import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -7,49 +7,49 @@ from typing import Any, Dict, Optional
 
 @dataclass
 class UserPreferences:
-    """User preference settings."""
+    """用户偏好设置。"""
 
-    # Default processing mode
+    # 默认处理模式
     default_mode: str = "privacy_enhanced"
 
-    # Output format preferences
+    # 输出格式偏好
     default_output_format: str = "markdown"
     include_metadata: bool = True
     include_timestamp: bool = True
 
-    # UI preferences
+    # 界面偏好
     show_token_count: bool = True
     show_cost_estimate: bool = True
     auto_preview: bool = True
 
-    # Workflow preferences
+    # 工作流偏好
     favorite_templates: list = field(default_factory=list)
     recent_templates: list = field(default_factory=list)
 
-    # Notification preferences
+    # 通知偏好
     notify_on_completion: bool = True
     notify_on_cost_threshold: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """转换为字典。"""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "UserPreferences":
-        """Create from dictionary, ignoring unknown keys."""
+        """从字典创建，忽略未知键。"""
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
 
 
 class PreferenceManager:
-    """Manages user preferences with file-based persistence."""
+    """管理用户偏好，基于文件持久化。"""
 
     def __init__(self, preferences_dir: str | Path | None = None):
-        """Initialize preference manager.
+        """初始化偏好管理器。
 
         Args:
-            preferences_dir: Directory to store preferences. Defaults to 'data/preferences'.
+            preferences_dir: 存储偏好的目录。默认为 'data/preferences'。
         """
         if preferences_dir is None:
             preferences_dir = Path("data/preferences")
@@ -61,10 +61,10 @@ class PreferenceManager:
         self._cache: Optional[UserPreferences] = None
 
     def load(self) -> UserPreferences:
-        """Load user preferences from file.
+        """从文件加载用户偏好。
 
         Returns:
-            UserPreferences instance.
+            UserPreferences 实例。
         """
         if self._cache is not None:
             return self._cache
@@ -82,10 +82,10 @@ class PreferenceManager:
         return self._cache
 
     def save(self, preferences: UserPreferences) -> None:
-        """Save user preferences to file.
+        """保存用户偏好到文件。
 
         Args:
-            preferences: UserPreferences to save.
+            preferences: 要保存的 UserPreferences。
         """
         self._cache = preferences
 
@@ -93,13 +93,13 @@ class PreferenceManager:
             json.dump(preferences.to_dict(), f, ensure_ascii=False, indent=2)
 
     def update(self, **kwargs) -> UserPreferences:
-        """Update specific preference fields.
+        """更新特定偏好字段。
 
         Args:
-            **kwargs: Fields to update.
+            **kwargs: 要更新的字段。
 
         Returns:
-            Updated UserPreferences.
+            更新后的 UserPreferences。
         """
         preferences = self.load()
 
@@ -111,34 +111,34 @@ class PreferenceManager:
         return preferences
 
     def add_recent_template(self, template_name: str, max_recent: int = 10) -> None:
-        """Add a template to recent templates list.
+        """将模板添加到最近使用列表。
 
         Args:
-            template_name: Name of the template.
-            max_recent: Maximum number of recent templates to keep.
+            template_name: 模板名称。
+            max_recent: 保留的最近模板最大数量。
         """
         preferences = self.load()
 
-        # Remove if already exists
+        # 如果已存在则移除
         if template_name in preferences.recent_templates:
             preferences.recent_templates.remove(template_name)
 
-        # Add to front
+        # 添加到最前面
         preferences.recent_templates.insert(0, template_name)
 
-        # Trim to max
+        # 裁剪到最大数量
         preferences.recent_templates = preferences.recent_templates[:max_recent]
 
         self.save(preferences)
 
     def toggle_favorite_template(self, template_name: str) -> bool:
-        """Toggle a template as favorite.
+        """切换模板的收藏状态。
 
         Args:
-            template_name: Name of the template.
+            template_name: 模板名称。
 
         Returns:
-            True if added to favorites, False if removed.
+            如果添加到收藏则返回 True，如果移除则返回 False。
         """
         preferences = self.load()
 
@@ -152,10 +152,10 @@ class PreferenceManager:
             return True
 
     def reset(self) -> UserPreferences:
-        """Reset preferences to defaults.
+        """重置偏好为默认值。
 
         Returns:
-            Default UserPreferences.
+            默认的 UserPreferences。
         """
         default = UserPreferences()
         self.save(default)

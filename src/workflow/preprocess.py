@@ -1,27 +1,27 @@
-"""Preprocessing orchestration — file parsing, chunking, sensitive detection."""
+"""预处理编排 —— 文件解析、分块、敏感信息检测。"""
 from typing import List
 
 from src.tools.file_ops import ParsedDocument, parse_file
 
 
 def preprocess(file_paths: List[str], config) -> List[ParsedDocument]:
-    """Parse and preprocess a list of files.
+    """解析并预处理文件列表。
 
-    For each file:
-    1. Parse into ParsedDocument (txt/md)
-    2. Chunk the content
-    3. If redaction enabled, detect sensitive info (Phase 4)
+    对每个文件执行以下步骤：
+    1. 解析为 ParsedDocument（txt/md）
+    2. 对内容进行分块
+    3. 如果启用了脱敏，检测敏感信息（阶段 4）
 
-    Args:
-        file_paths: List of file paths to process.
-        config: AppConfig instance.
+    参数：
+        file_paths: 待处理的文件路径列表。
+        config: AppConfig 实例。
 
-    Returns:
-        List of ParsedDocument objects.
+    返回：
+        ParsedDocument 对象列表。
 
-    Raises:
-        FileNotFoundError: If any file does not exist.
-        PermissionError: If any file fails security checks.
+    异常：
+        FileNotFoundError: 如果任何文件不存在。
+        PermissionError: 如果任何文件未通过安全检查。
     """
     documents: List[ParsedDocument] = []
 

@@ -1,8 +1,7 @@
-"""Batch indexer — walk data/logs/ and output/ and ingest into ChromaDB.
+"""批量索引器 — 遍历 data/logs/ 和 output/ 目录并将内容写入 ChromaDB。
 
-ponytail: simple O(n) scan on each indexer run, keyed by (path, mtime, size) to
-skip unchanged files. Upgrade path: inotify-driven incremental updates for
-production-scale watch directories.
+ponytail: 每次运行执行简单 O(n) 扫描，通过 (path, mtime, size) 键跳过未变更文件。
+升级路径：在生产规模监控目录中采用 inotify 驱动的增量更新。
 """
 import hashlib
 import logging
@@ -18,11 +17,11 @@ from src.knowledge.store import (
 
 logger = logging.getLogger(__name__)
 
-# ── Cache key helpers ──
+# ── 缓存键辅助工具 ──
 
 
 def _file_key(path: Path) -> Optional[str]:
-    """Generate a content-based cache key: (path, mtime, size)."""
+    """生成基于内容的缓存键：(path, mtime, size)。"""
     try:
         stat = path.stat()
         raw = f"{path.resolve()}|{stat.st_mtime}|{stat.st_size}"
@@ -32,7 +31,7 @@ def _file_key(path: Path) -> Optional[str]:
 
 
 def _load_index_state(cache_path: Path) -> Dict[str, str]:
-    """Load the last-known index state: {chroma_doc_id: cache_key}."""
+    """加载上次已知的索引状态：{chroma_doc_id: cache_key}。"""
     if not cache_path.exists():
         return {}
     try:
@@ -48,16 +47,16 @@ def _load_index_state(cache_path: Path) -> Dict[str, str]:
 
 
 def _save_index_state(cache_path: Path, state: Dict[str, str]) -> None:
-    """Persist the index state."""
+    """持久化索引状态。"""
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{k}|{v}" for k, v in state.items()]
     cache_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 class Indexer:
-    """Scans target directories and indexes text content into ChromaDB.
+    """扫描目标目录并将文本内容索引到 ChromaDB。
 
-    Usage:
+    用法:
         indexer = Indexer(store, embedder)
         result = indexer.index_logs("data/logs")
         # => {"added": 5, "skipped": 12, "errors": 0}
@@ -69,20 +68,20 @@ class Indexer:
         self._cache_dir = Path("data/chroma/.index_cache")
 
     def index_logs(self, logs_dir: str = "data/logs") -> dict:
-        """Index all RunLog JSONL files.
+        """索引所有 RunLog JSONL 文件。
 
-        Each file produces one document with its full text content.
+        每个文件生成一个包含其完整文本内容的文档。
         """
         return self._index_directory(
             directory=Path(logs_dir),
             pattern="*.jsonl",
             collection_name=COLLECTION_RUNLOG,
             doc_type="runlog",
-            chunk_size=8000,  # chars per doc
+            chunk_size=8000,  # 每个文档的字符数
         )
 
     def index_outputs(self, outputs_dir: str = "output") -> dict:
-        """Index all output .md/.txt files."""
+        """索引所有输出的 .md/.txt 文件。"""
         stats = self._index_directory(
             directory=Path(outputs_dir),
             pattern="*.md",
@@ -102,13 +101,13 @@ class Indexer:
         return stats
 
     def index_all(self) -> dict:
-        """Convenience: index both logs and outputs."""
+        """便捷方法：同时索引日志和输出。"""
         return {
             "logs": self.index_logs(),
             "outputs": self.index_outputs(),
         }
 
-    # ── internals ──
+    # ── 内部方法 ──
 
     def _index_directory(
         self,
@@ -118,7 +117,7 @@ class Indexer:
         doc_type: str,
         chunk_size: int,
     ) -> dict:
-        """Walk a directory, read matching files, chunk, embed, and upsert."""
+        """遍历目录，读取匹配文件，分块、embedding 并更新插入。"""
         stats = {"added": 0, "skipped": 0, "errors": 0}
 
         if not directory.exists():
@@ -136,7 +135,7 @@ class Indexer:
             if cache_key is None:
                 continue
 
-            # Check if already indexed and unchanged
+            # 检查是否已索引且未变更
             doc_id = f"{doc_type}:{file_path.name}"
             old_key = old_state.get(doc_id)
             if old_key == cache_key:
@@ -144,7 +143,7 @@ class Indexer:
                 new_state[doc_id] = cache_key
                 continue
 
-            # Read and chunk
+            # 读取并分块
             try:
                 text = file_path.read_text(encoding="utf-8")
             except Exception:
@@ -156,7 +155,7 @@ class Indexer:
                 new_state[doc_id] = cache_key or "empty"
                 continue
 
-            # Embed each chunk
+            # 为每个块生成 embedding
             chunk_ids: List[str] = []
             chunk_docs: List[str] = []
             chunk_metas: List[dict] = []
@@ -184,11 +183,11 @@ class Indexer:
 
             new_state[doc_id] = cache_key or "reindexed"
 
-        # Prune deleted files from Chroma
+        # 清理 Chroma 中已删除的文件
         removed_ids = set(old_state.keys()) - set(new_state.keys())
         for rid in removed_ids:
             try:
-                # Delete all chunks for this doc
+                # 删除该文档的所有块
                 col.delete(where={"source": rid})
             except Exception:
                 pass
@@ -198,7 +197,7 @@ class Indexer:
 
     @staticmethod
     def _chunk_text(text: str, chunk_size: int) -> List[str]:
-        """Split text into ~chunk_size-character chunks on paragraph boundaries."""
+        """按段落边界将文本拆分为约 chunk_size 字符大小的块。"""
         if len(text) <= chunk_size:
             return [text]
 

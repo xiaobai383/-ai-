@@ -1,4 +1,4 @@
-"""FastAPI application — REST API for the AI Workflow Assistant."""
+"""FastAPI 应用 — AI 工作流助手的 REST API。"""
 import json
 import time
 from pathlib import Path as PathLib
@@ -12,10 +12,10 @@ from src.config import AppConfig
 from src.workflow.templates import load_workflow_template, list_templates
 
 
-# ── Pydantic models ──
+# ── Pydantic 模型 ──
 
 class TaskRequest(BaseModel):
-    """Task request payload."""
+    """任务请求载荷。"""
     query: str
     mode: str = "privacy_enhanced"
     files: List[str] = []
@@ -24,7 +24,7 @@ class TaskRequest(BaseModel):
 
 
 class TaskResponse(BaseModel):
-    """Task execution result."""
+    """任务执行结果。"""
     run_id: str
     status: str
     result_path: Optional[str] = None
@@ -37,28 +37,28 @@ class TaskResponse(BaseModel):
 
 
 class TemplateInfo(BaseModel):
-    """Workflow template information."""
+    """工作流模板信息。"""
     name: str
     description: str
     steps: List[str]
 
 
 class HealthResponse(BaseModel):
-    """Health check response."""
+    """健康检查响应。"""
     status: str
     version: str
     model: str
 
 
 class WatchStatusResponse(BaseModel):
-    """Folder watcher status."""
+    """文件夹监控状态。"""
     running: bool
     dirs: List[str]
     trigger_mode: str
 
 
 class ScheduledJobRequest(BaseModel):
-    """Create scheduled job request."""
+    """创建定时任务请求。"""
     name: str
     description: str = ""
     schedule_preset: str
@@ -70,7 +70,7 @@ class ScheduledJobRequest(BaseModel):
 
 
 class ScheduledJobResponse(BaseModel):
-    """Scheduled job information."""
+    """定时任务信息。"""
     job_id: str
     name: str
     description: str
@@ -83,14 +83,14 @@ class ScheduledJobResponse(BaseModel):
 
 
 class BatchRequest(BaseModel):
-    """Batch processing request."""
+    """批处理请求。"""
     query: str
     files: List[str]
     mode: str = "privacy_enhanced"
 
 
 class BatchResponse(BaseModel):
-    """Batch processing result."""
+    """批处理结果。"""
     batch_id: str
     total_files: int
     completed: int
@@ -103,16 +103,16 @@ class BatchResponse(BaseModel):
     errors: List[str]
 
 
-# ── App factory ──
+# ── 应用工厂 ──
 
 def create_api_app(config: AppConfig) -> FastAPI:
-    """Create and configure the FastAPI application.
+    """创建并配置 FastAPI 应用。
 
     Args:
-        config: Application configuration.
+        config: 应用配置。
 
     Returns:
-        Configured FastAPI instance.
+        配置好的 FastAPI 实例。
     """
     app = FastAPI(
         title="个人 AI 工作流助手 API",
@@ -120,12 +120,12 @@ def create_api_app(config: AppConfig) -> FastAPI:
         version="1.0.0",
     )
 
-    # Store config in app state
+    # 将配置存入应用状态
     app.state.config = config
 
     @app.get("/health", response_model=HealthResponse)
     async def health_check():
-        """Health check endpoint."""
+        """健康检查端点。"""
         return HealthResponse(
             status="healthy",
             version="1.0.0",
@@ -134,17 +134,17 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.post("/tasks", response_model=TaskResponse)
     async def create_task(request: TaskRequest):
-        """Execute a new task.
+        """执行新任务。
 
         Args:
-            request: Task request with query, mode, and file paths.
+            request: 包含查询、模式和文件路径的任务请求。
 
         Returns:
-            Task execution result with RunLog details.
+            包含 RunLog 详细信息的任务执行结果。
         """
         start_time = time.time()
 
-        # Load workflow template if specified
+        # 如果指定了工作流模板，则加载它
         workflow_steps = None
         if request.workflow_template:
             try:
@@ -156,7 +156,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
                     detail=f"Workflow template '{request.workflow_template}' not found",
                 )
 
-        # Build LLM if configured
+        # 如果已配置，则构建 LLM
         llm = None
         if config.api_key and "sk-fake" not in config.api_key:
             from src.fallback.provider import FallbackChatModel
@@ -191,7 +191,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            # Read result preview if available
+            # 读取结果预览（如果有的话）
             result_preview = None
             if run_log.result_path:
                 from pathlib import Path
@@ -232,18 +232,18 @@ def create_api_app(config: AppConfig) -> FastAPI:
         output_format: str = Form("markdown"),
         files: List[UploadFile] = File(...),
     ):
-        """Execute a task with file upload.
+        """通过文件上传执行任务。
 
         Args:
-            query: User task description.
-            mode: Processing mode.
-            output_format: Desired output format.
-            files: Uploaded files.
+            query: 用户任务描述。
+            mode: 处理模式。
+            output_format: 期望的输出格式。
+            files: 上传的文件。
 
         Returns:
-            Task execution result.
+            任务执行结果。
         """
-        # Save uploaded files temporarily
+        # 临时保存上传的文件
         import tempfile
         from pathlib import Path
 
@@ -256,7 +256,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
             file_path.write_bytes(content)
             file_paths.append(str(file_path))
 
-        # Create task request
+        # 创建任务请求
         request = TaskRequest(
             query=query,
             mode=mode,
@@ -264,10 +264,10 @@ def create_api_app(config: AppConfig) -> FastAPI:
             output_format=output_format,
         )
 
-        # Execute task
+        # 执行任务
         result = await create_task(request)
 
-        # Cleanup temp files
+        # 清理临时文件
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -275,10 +275,10 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.get("/templates", response_model=List[TemplateInfo])
     async def get_templates():
-        """List available workflow templates.
+        """列出所有可用的工作流模板。
 
         Returns:
-            List of template information.
+            模板信息列表。
         """
         templates = list_templates()
         return [
@@ -292,13 +292,13 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.get("/templates/{template_name}", response_model=TemplateInfo)
     async def get_template(template_name: str):
-        """Get a specific workflow template.
+        """获取指定的工作流模板。
 
         Args:
-            template_name: Name of the template.
+            template_name: 模板名称。
 
         Returns:
-            Template details.
+            模板详细信息。
         """
         try:
             template = load_workflow_template(template_name)
@@ -315,10 +315,10 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.get("/config")
     async def get_config():
-        """Get current configuration (non-sensitive parts).
+        """获取当前配置（非敏感部分）。
 
         Returns:
-            Public configuration values.
+            公开的配置值。
         """
         return {
             "model": config.model_name,
@@ -329,11 +329,11 @@ def create_api_app(config: AppConfig) -> FastAPI:
             "redaction_enabled": config.redaction_enabled,
         }
 
-    # ── v0.3: Watch endpoints ──
+    # ── v0.3：监控端点 ──
 
     @app.get("/watch/status", response_model=WatchStatusResponse)
     async def watch_status():
-        """Get current folder watcher status."""
+        """获取当前文件夹监控状态。"""
         from src.monitor.watcher import _active_watcher
 
         if _active_watcher is not None and _active_watcher.is_running:
@@ -350,14 +350,14 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.post("/watch/start")
     async def watch_start():
-        """Start the folder watcher."""
+        """启动文件夹监控。"""
         from src.monitor.watcher import start_watcher, _active_watcher
 
         if _active_watcher is not None and _active_watcher.is_running:
             return {"status": "already_running", "message": "Watcher is already running"}
 
         def _on_change(files: List[str]) -> None:
-            """Handle file changes — trigger run_task for each file."""
+            """处理文件变更 — 为每个文件触发 run_task。"""
             for f in files:
                 try:
                     run_task(
@@ -375,23 +375,23 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.post("/watch/stop")
     async def watch_stop():
-        """Stop the folder watcher."""
+        """停止文件夹监控。"""
         from src.monitor.watcher import stop_watcher
         stop_watcher()
         return {"status": "stopped", "message": "Watcher stopped"}
 
-    # ── v0.3: Scheduler endpoints ──
+    # ── v0.3：调度器端点 ──
 
     _engine: Any = None
 
     def _ensure_engine():
-        """Lazy-init the scheduler engine."""
+        """延迟初始化调度器引擎。"""
         nonlocal _engine
         if _engine is None:
             from src.scheduler.engine import SchedulerEngine
 
             def _exec_cb(job: Any) -> None:
-                """Execute a scheduled job."""
+                """执行定时任务。"""
                 try:
                     run_task(
                         query=job.query,
@@ -409,7 +409,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.get("/scheduler/jobs", response_model=List[ScheduledJobResponse])
     async def list_scheduled_jobs():
-        """List all scheduled jobs."""
+        """列出所有定时任务。"""
         engine = _ensure_engine()
         jobs = engine.list_jobs()
         return [
@@ -429,7 +429,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.post("/scheduler/jobs", response_model=ScheduledJobResponse)
     async def create_scheduled_job(request: ScheduledJobRequest):
-        """Create a new scheduled job from a preset."""
+        """从预设创建新的定时任务。"""
         from src.scheduler.jobs import PRESET_SCHEDULES, ScheduledJob, JobStore
 
         preset = PRESET_SCHEDULES.get(request.schedule_preset)
@@ -452,11 +452,11 @@ def create_api_app(config: AppConfig) -> FastAPI:
             output_format=request.output_format,
         )
 
-        # Persist
+        # 持久化
         store = JobStore(config.scheduler_jobs_dir)
         store.save(job)
 
-        # Register with engine
+        # 注册到引擎
         engine = _ensure_engine()
         engine.add_job(job)
 
@@ -474,7 +474,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.delete("/scheduler/jobs/{job_id}")
     async def delete_scheduled_job(job_id: str):
-        """Delete a scheduled job."""
+        """删除定时任务。"""
         from src.scheduler.jobs import JobStore
 
         engine = _ensure_engine()
@@ -482,14 +482,14 @@ def create_api_app(config: AppConfig) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
-        # Remove persistence
+        # 移除持久化
         store = JobStore(config.scheduler_jobs_dir)
         store.delete(job_id)
         return {"status": "deleted", "job_id": job_id}
 
     @app.post("/scheduler/jobs/{job_id}/pause")
     async def pause_scheduled_job(job_id: str):
-        """Pause a scheduled job."""
+        """暂停定时任务。"""
         engine = _ensure_engine()
         ok = engine.pause_job(job_id)
         if not ok:
@@ -498,18 +498,18 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.post("/scheduler/jobs/{job_id}/resume")
     async def resume_scheduled_job(job_id: str):
-        """Resume a paused scheduled job."""
+        """恢复已暂停的定时任务。"""
         engine = _ensure_engine()
         ok = engine.resume_job(job_id)
         if not ok:
             raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
         return {"status": "resumed", "job_id": job_id}
 
-    # ── v0.3: Batch endpoint ──
+    # ── v0.3：批处理端点 ──
 
     @app.post("/batch", response_model=BatchResponse)
     async def batch_run(request: BatchRequest):
-        """Execute a batch task across multiple files."""
+        """跨多个文件执行批处理任务。"""
         from src.batch.runner import BatchRunner
 
         runner = BatchRunner(config)
@@ -532,11 +532,11 @@ def create_api_app(config: AppConfig) -> FastAPI:
             errors=report.errors,
         )
 
-    # ── v0.3: Notifications endpoint ──
+    # ── v0.3：通知端点 ──
 
     @app.get("/notifications")
     async def list_notifications(limit: int = 50):
-        """List recent notification history from JSONL log."""
+        """从 JSONL 日志中列出最近的通知历史。"""
         log_path = PathLib(config.notifications_log_file)
         if not log_path.exists():
             return {"notifications": [], "total": 0}
@@ -552,7 +552,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
         return {"notifications": entries, "total": len(entries)}
 
-    # ── v1.0: Replay endpoints ──
+    # ── v1.0：回放端点 ──
 
     @app.get("/replay/runs")
     async def list_runs(
@@ -562,7 +562,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
         limit: int = 20,
         offset: int = 0,
     ):
-        """List historical RunLogs with optional filters."""
+        """列出历史 RunLog，支持可选筛选。"""
         from src.replay.loader import RunLogLoader
 
         loader = RunLogLoader()
@@ -594,7 +594,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
     @app.get("/replay/runs/{run_id}")
     async def get_run_detail(run_id: str):
-        """Get full RunLog detail by run_id."""
+        """通过 run_id 获取完整的 RunLog 详情。"""
         from src.replay.loader import RunLogLoader
 
         loader = RunLogLoader()
@@ -628,7 +628,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
             ],
         }
 
-    # ── v1.0: Knowledge / Search endpoint ──
+    # ── v1.0：知识库/搜索端点 ──
 
     @app.get("/knowledge/search")
     async def search_knowledge(
@@ -636,7 +636,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
         top_k: int = 5,
         collection: Optional[str] = None,
     ):
-        """Semantic search across indexed knowledge."""
+        """对已索引的知识进行语义搜索。"""
         from src.knowledge.embedder import OllamaEmbedder
         from src.knowledge.search import Searcher
         from src.knowledge.store import KnowledgeStore
@@ -666,11 +666,11 @@ def create_api_app(config: AppConfig) -> FastAPI:
             ],
         }
 
-    # ── v1.0: Dashboard stats endpoint ──
+    # ── v1.0：仪表盘统计端点 ──
 
     @app.get("/dashboard/stats")
     async def dashboard_stats(days: int = 7):
-        """Aggregate dashboard statistics."""
+        """聚合仪表盘统计数据。"""
         from src.dashboard.aggregator import DashboardAggregator
 
         agg = DashboardAggregator()

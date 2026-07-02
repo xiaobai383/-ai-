@@ -1,7 +1,7 @@
-"""Semantic search interface — query ChromaDB collections with natural language.
+"""语义搜索接口 — 用自然语言查询 ChromaDB 集合。
 
-ponytail: simple top-k search across named collections; no re-ranking or hybrid
-BM25+vector. Upgrade path: add keyword-filter pre-pass and cross-encoder rerank.
+ponytail: 跨命名集合的简单 top-k 搜索；无重排序或 BM25+向量混合检索。
+升级路径：增加关键词预过滤和交叉编码器重排序。
 """
 import logging
 from dataclasses import dataclass, field
@@ -20,18 +20,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SearchResult:
-    """A single search hit."""
+    """单条搜索命中结果。"""
     chunk_id: str
     document: str
-    score: float       # 0–1, higher is more relevant
-    source: str        # original file path
+    score: float       # 0–1，越高越相关
+    source: str        # 原始文件路径
     doc_type: str      # "runlog" | "output" | "preferences"
     chunk_index: int = 0
 
 
 @dataclass
 class SearchResponse:
-    """Full search response."""
+    """完整搜索响应。"""
     query: str
     results: List[SearchResult] = field(default_factory=list)
     total_hits: int = 0
@@ -43,9 +43,9 @@ ALL_COLLECTIONS = [COLLECTION_RUNLOG, COLLECTION_OUTPUTS, COLLECTION_PREFERENCES
 
 
 class Searcher:
-    """Semantic search across indexed knowledge collections.
+    """跨已索引知识集合的语义搜索。
 
-    Usage:
+    用法:
         searcher = Searcher(store, embedder)
         results = searcher.search("上次风险分析的结果是什么？", top_k=5)
     """
@@ -61,16 +61,16 @@ class Searcher:
         collections: Optional[List[str]] = None,
         doc_type_filter: Optional[str] = None,
     ) -> SearchResponse:
-        """Search across specified collections (default: all).
+        """跨指定集合搜索（默认：全部）。
 
         Args:
-            query: Natural language search query.
-            top_k: Max results per collection.
-            collections: Which collections to search (default: all).
-            doc_type_filter: Optional filter on doc_type metadata.
+            query: 自然语言搜索查询。
+            top_k: 每个集合的最大结果数。
+            collections: 要搜索的集合（默认：全部）。
+            doc_type_filter: 可选的 doc_type 元数据过滤。
 
         Returns:
-            SearchResponse with ranked results.
+            包含排序结果的 SearchResponse。
         """
         if collections is None:
             collections = ALL_COLLECTIONS
@@ -104,7 +104,7 @@ class Searcher:
 
                 raw = self.store.query(col, embedding, top_k=top_k, where=where)
 
-                # Flatten ChromaDB response
+                # 展平 ChromaDB 响应
                 doc_lists = raw.get("documents", [[]])
                 meta_lists = raw.get("metadatas", [[]])
                 dist_lists = raw.get("distances", [[]])
@@ -115,7 +115,7 @@ class Searcher:
                     dist = (dist_lists[0][i] if dist_lists and i < len(dist_lists[0]) else 1.0)
                     cid = (id_lists[0][i] if id_lists and i < len(id_lists[0]) else "")
 
-                    # Convert distance to similarity score (cosine: 0=identical, 2=opposite)
+                    # 将距离转换为相似度分数（余弦：0=完全相同，2=完全相反）
                     score = 1.0 - (dist / 2.0) if isinstance(dist, (int, float)) else 0.0
                     score = max(0.0, min(1.0, score))
 
@@ -131,7 +131,7 @@ class Searcher:
             except Exception as e:
                 logger.warning("Search failed for collection '%s': %s", col_name, e)
 
-        # Sort by score descending
+        # 按分数降序排序
         all_results.sort(key=lambda r: r.score, reverse=True)
         top = all_results[:top_k]
 

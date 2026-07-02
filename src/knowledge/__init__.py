@@ -1,4 +1,4 @@
-"""Knowledge module — vector retrieval and long-term memory via ChromaDB + Ollama."""
+"""知识库模块 — 通过 ChromaDB + Ollama 实现向量检索与长期记忆。"""
 from src.knowledge.embedder import OllamaEmbedder
 from src.knowledge.indexer import Indexer
 from src.knowledge.search import Searcher, SearchResponse, SearchResult

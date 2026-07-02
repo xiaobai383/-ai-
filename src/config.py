@@ -1,4 +1,4 @@
-"""Application configuration loaded from YAML and environment variables."""
+"""应用配置 — 从 YAML 和环境变量加载。"""
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 @dataclass
 class AppConfig:
-    """Central configuration for the AI workflow assistant."""
+    """AI 工作流助手的统一配置中心。"""
 
     model_name: str = "deepseek-v4-flash"
     model_base_url: str = "https://api.deepseek.com/v1"
@@ -27,22 +27,48 @@ class AppConfig:
     redaction_enabled: bool = True
     redaction_rules: Dict[str, bool] = field(default_factory=dict)
 
-    # v0.2 additions
+    # v0.2 新增
     default_output_format: str = "markdown"
     workflows_dir: str = "workflows"
     preferences_dir: str = "data/preferences"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
 
+    # v0.3 新增 — 监听 / 调度 / 通知
+    watch_enabled: bool = False
+    watch_dirs: List[str] = field(default_factory=list)
+    watch_patterns: List[str] = field(default_factory=list)
+    watch_trigger_mode: str = "instant"
+    watch_batch_window_seconds: int = 60
+    watch_workflow_template: str = "summarize"
+    watch_mode: str = "privacy_enhanced"
+    scheduler_enabled: bool = False
+    scheduler_jobs_dir: str = "data/scheduled_jobs"
+    notifications_enabled: bool = True
+    notifications_engine: str = "auto"
+    notifications_log_file: str = "data/logs/notifications.jsonl"
+
+    # v1.0 新增 — 知识检索
+    knowledge_chroma_dir: str = "data/chroma"
+    knowledge_embed_model: str = "nomic-embed-text"
+    knowledge_embed_base_url: str = "http://localhost:11434"
+    knowledge_default_top_k: int = 5
+
+    # v1.0 新增 — 本地模型兜底
+    fallback_enabled: bool = True
+    fallback_ollama_base_url: str = "http://localhost:11434/v1"
+    fallback_ollama_model: str = "qwen2.5:1.5b"
+    fallback_timeout_seconds: int = 10
+
     @classmethod
     def from_yaml_and_env(cls, yaml_path: str | None = None) -> "AppConfig":
-        """Load config from YAML file and override with environment variables.
+        """从 YAML 文件和 .env 环境变量加载配置。
 
-        Args:
-            yaml_path: Path to config.yaml. Defaults to 'config.yaml' in cwd.
+        参数:
+            yaml_path: config.yaml 的路径，默认为当前目录下的 'config.yaml'。
 
-        Returns:
-            AppConfig instance with merged settings.
+        返回:
+            合并了所有设置项的 AppConfig 实例。
         """
         load_dotenv()
 
@@ -85,7 +111,7 @@ class AppConfig:
                 if isinstance(v, bool)
             }
 
-            # v0.2 additions
+            # v0.2 新增
             output_cfg = raw.get("output", {})
             config.default_output_format = output_cfg.get("format", config.default_output_format)
 
@@ -99,7 +125,46 @@ class AppConfig:
             config.api_host = api_cfg.get("host", config.api_host)
             config.api_port = api_cfg.get("port", config.api_port)
 
-        # Environment variable overrides
+            # v0.3 新增 — 监听 / 调度 / 通知
+            watch_cfg = raw.get("watch", {})
+            config.watch_enabled = watch_cfg.get("enabled", config.watch_enabled)
+            config.watch_dirs = list(watch_cfg.get("dirs", []))
+            config.watch_patterns = list(watch_cfg.get("patterns", ["*.txt", "*.md"]))
+            config.watch_trigger_mode = watch_cfg.get("trigger_mode", config.watch_trigger_mode)
+            config.watch_batch_window_seconds = watch_cfg.get(
+                "batch_window_seconds", config.watch_batch_window_seconds
+            )
+            config.watch_workflow_template = watch_cfg.get(
+                "workflow_template", config.watch_workflow_template
+            )
+            config.watch_mode = watch_cfg.get("mode", config.watch_mode)
+
+            scheduler_cfg = raw.get("scheduler", {})
+            config.scheduler_enabled = scheduler_cfg.get("enabled", config.scheduler_enabled)
+            config.scheduler_jobs_dir = scheduler_cfg.get("jobs_dir", config.scheduler_jobs_dir)
+
+            notifications_cfg = raw.get("notifications", {})
+            config.notifications_enabled = notifications_cfg.get(
+                "enabled", config.notifications_enabled
+            )
+            config.notifications_engine = notifications_cfg.get("engine", config.notifications_engine)
+            config.notifications_log_file = notifications_cfg.get("log_file", config.notifications_log_file)
+
+            # v1.0 新增 — 知识检索
+            knowledge_cfg = raw.get("knowledge", {})
+            config.knowledge_chroma_dir = knowledge_cfg.get("chroma_dir", config.knowledge_chroma_dir)
+            config.knowledge_embed_model = knowledge_cfg.get("embed_model", config.knowledge_embed_model)
+            config.knowledge_embed_base_url = knowledge_cfg.get("embed_base_url", config.knowledge_embed_base_url)
+            config.knowledge_default_top_k = knowledge_cfg.get("default_top_k", config.knowledge_default_top_k)
+
+            # v1.0 新增 — 本地模型兜底
+            fallback_cfg = raw.get("fallback", {})
+            config.fallback_enabled = fallback_cfg.get("enabled", config.fallback_enabled)
+            config.fallback_ollama_base_url = fallback_cfg.get("ollama_base_url", config.fallback_ollama_base_url)
+            config.fallback_ollama_model = fallback_cfg.get("ollama_model", config.fallback_ollama_model)
+            config.fallback_timeout_seconds = fallback_cfg.get("timeout_seconds", config.fallback_timeout_seconds)
+
+        # 环境变量覆盖
         config.model_name = os.environ.get("MODEL_NAME", config.model_name)
         config.model_base_url = os.environ.get(
             "OPENAI_BASE_URL", config.model_base_url

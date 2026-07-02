@@ -1,7 +1,7 @@
-"""Fallback LLM provider — cloud-first with automatic Ollama degradation.
+"""兜底 LLM 提供者 — 云端优先，失败时自动降级到 Ollama。
 
-ponytail: simple try/except fallback, no retry backoff or circuit breaker.
-Upgrade path: add exponential backoff + circuit state tracking for production.
+ponytail：简单的 try/except 兜底，无重试退避或熔断器。
+升级路径：为生产环境添加指数退避 + 熔断状态跟踪。
 """
 import logging
 from typing import Any, List, Optional
@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 class FallbackChatModel(BaseChatModel):
-    """A LangChain-compatible chat model that falls back to Ollama on failure.
+    """兼容 LangChain 的聊天模型，失败时回退到 Ollama。
 
-    Usage:
+    用法：
         llm = FallbackChatModel(
             primary_model="deepseek-v4-flash",
             primary_base_url="https://api.deepseek.com/v1",
@@ -37,7 +37,7 @@ class FallbackChatModel(BaseChatModel):
     fallback_model: str = "qwen2.5:1.5b"
     timeout: int = 10
 
-    # Runtime state — set after each invoke
+    # 运行时状态 — 每次调用后设置
     used_fallback: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -49,10 +49,10 @@ class FallbackChatModel(BaseChatModel):
         run_manager: Optional[Any] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Try primary API, fall back to Ollama on failure."""
+        """先尝试主 API，失败则回退到 Ollama。"""
         self.used_fallback = False
 
-        # Try primary
+        # 尝试主 API
         try:
             primary = ChatOpenAI(
                 model=self.primary_model,
@@ -64,22 +64,22 @@ class FallbackChatModel(BaseChatModel):
             result = primary._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             return result
         except Exception as e:
-            logger.warning("Primary LLM (%s) failed: %s. Falling back to Ollama.", self.primary_model, e)
+            logger.warning("主 LLM (%s) 失败：%s。正在回退到 Ollama。", self.primary_model, e)
 
-        # Fallback to Ollama
+        # 回退到 Ollama
         try:
             fallback = ChatOpenAI(
                 model=self.fallback_model,
-                api_key="ollama",  # Ollama doesn't validate
+                api_key="ollama",  # Ollama 不验证
                 base_url=self.fallback_base_url,
                 temperature=0.3,
-                timeout=60,  # local model may be slower
+                timeout=60,  # 本地模型可能较慢
             )
             result = fallback._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             self.used_fallback = True
             return result
         except Exception as e:
-            logger.error("Fallback LLM (%s) also failed: %s", self.fallback_model, e)
+            logger.error("兜底 LLM (%s) 也失败了：%s", self.fallback_model, e)
             raise
 
     @property

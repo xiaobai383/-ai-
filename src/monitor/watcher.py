@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WatchEvent:
     """一次文件变更事件。"""
-    event_type: str   # created, modified
+    event_type: str   # 创建、修改
     path: str
     timestamp: float = field(default_factory=time.time)
 

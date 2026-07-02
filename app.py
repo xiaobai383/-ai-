@@ -1,12 +1,12 @@
-"""Entry point for the Personal AI Workflow Assistant.
+"""个人 AI 工作流助手入口。
 
-Usage:
-    python app.py              — launch the Gradio UI
-    python app.py --api        — launch the FastAPI server
-    python app.py --watch      — launch Gradio UI with folder watcher enabled
-    python app.py --scheduler  — launch Gradio UI with scheduler enabled
-    python app.py --api --watch --scheduler  — FastAPI + watch + scheduler
-    python app.py --test       — run all tests
+用法：
+    python app.py              — 启动 Gradio UI
+    python app.py --api        — 启动 FastAPI 服务
+    python app.py --watch      — 启动 Gradio UI 并启用文件夹监听
+    python app.py --scheduler  — 启动 Gradio UI 并启用定时任务
+    python app.py --api --watch --scheduler  — FastAPI + 监听 + 定时
+    python app.py --test       — 运行所有测试
 """
 import sys
 
@@ -20,7 +20,7 @@ def main():
 
     config = AppConfig.from_yaml_and_env()
 
-    # v0.3 CLI flags — override config file defaults
+    # v0.3 CLI 参数 — 覆盖配置文件中的默认值
     if "--watch" in sys.argv:
         config.watch_enabled = True
     if "--scheduler" in sys.argv:

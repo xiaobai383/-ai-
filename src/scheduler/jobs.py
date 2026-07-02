@@ -58,7 +58,7 @@ class ScheduledJob:
 
     # 调度: 预设名称或原始 cron/interval 参数
     schedule_preset: Optional[str] = None   # 预设名，如 "daily_9am"
-    trigger_type: str = "cron"              # cron | interval
+    trigger_type: str = "cron"              # cron 或 interval
     trigger_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     # 执行内容

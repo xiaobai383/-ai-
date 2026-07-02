@@ -1,7 +1,7 @@
-"""Plotly chart factory — interactive dashboard visualizations.
+"""Plotly 图表工厂 — 交互式仪表盘可视化。
 
-ponytail: direct Plotly calls, no chart config DSL. Upgrade path: add chart
-theme config and export-to-static option.
+ponytail：直接调用 Plotly，无图表配置 DSL。升级路径：添加图表主题配置
+和静态导出选项。
 """
 from typing import Dict
 
@@ -10,13 +10,13 @@ import plotly.graph_objects as go
 
 
 def cost_trend_chart(daily_data: list) -> go.Figure:
-    """Line chart: daily cost (yuan) over time.
+    """折线图：每日费用（元）随时间变化。
 
-    Args:
-        daily_data: List of DailyStats or dicts with 'date' and 'cost_yuan'.
+    参数：
+        daily_data：DailyStats 列表或包含 'date' 和 'cost_yuan' 的字典列表。
 
-    Returns:
-        Plotly Figure.
+    返回：
+        Plotly Figure。
     """
     if not daily_data:
         return _empty_chart("暂无数据", "请先执行一些任务")
@@ -45,13 +45,13 @@ def cost_trend_chart(daily_data: list) -> go.Figure:
 
 
 def mode_pie_chart(mode_dist: Dict[str, int]) -> go.Figure:
-    """Pie chart: task mode distribution.
+    """饼图：任务模式分布。
 
-    Args:
-        mode_dist: Dict mapping mode name → count.
+    参数：
+        mode_dist：模式名称 → 数量的字典。
 
-    Returns:
-        Plotly Figure.
+    返回：
+        Plotly Figure。
     """
     if not mode_dist:
         return _empty_chart("暂无数据", "")
@@ -80,13 +80,13 @@ def mode_pie_chart(mode_dist: Dict[str, int]) -> go.Figure:
 
 
 def model_pie_chart(model_dist: Dict[str, int]) -> go.Figure:
-    """Pie chart: model usage distribution.
+    """饼图：模型使用分布。
 
-    Args:
-        model_dist: Dict mapping model name → count.
+    参数：
+        model_dist：模型名称 → 数量的字典。
 
-    Returns:
-        Plotly Figure.
+    返回：
+        Plotly Figure。
     """
     if not model_dist:
         return _empty_chart("暂无数据", "")
@@ -105,13 +105,13 @@ def model_pie_chart(model_dist: Dict[str, int]) -> go.Figure:
 
 
 def token_bar_chart(daily_data: list) -> go.Figure:
-    """Stacked bar chart: daily token input/output.
+    """堆叠柱状图：每日 Token 输入/输出。
 
-    Args:
-        daily_data: List of DailyStats or dicts.
+    参数：
+        daily_data：DailyStats 列表或字典列表。
 
-    Returns:
-        Plotly Figure.
+    返回：
+        Plotly Figure。
     """
     if not daily_data:
         return _empty_chart("暂无数据", "")
@@ -135,7 +135,7 @@ def token_bar_chart(daily_data: list) -> go.Figure:
 
 
 def _empty_chart(title: str, subtitle: str = "") -> go.Figure:
-    """Return a placeholder chart when no data is available."""
+    """当没有数据时返回占位图表。"""
     fig = go.Figure()
     fig.add_annotation(
         text=title,

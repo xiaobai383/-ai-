@@ -1,4 +1,4 @@
-"""Upload policy — decide what to send to the cloud LLM and generate previews."""
+"""上传策略 —— 决定向云端 LLM 发送什么内容，并生成预览。"""
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -9,9 +9,9 @@ from src.tools.redaction import redact
 
 @dataclass
 class UploadDecision:
-    """The result of the upload policy decision."""
+    """上传策略决策的结果。"""
 
-    strategy: str  # full, chunks, redacted, blocked
+    strategy: str  # full, chunks, redacted, blocked（全文、分块、脱敏、阻止）
     selected_chunks: List[str] = field(default_factory=list)
     redact_map: Dict[str, str] = field(default_factory=dict)
     needs_confirmation: bool = False
@@ -19,7 +19,7 @@ class UploadDecision:
 
 @dataclass
 class UploadPreview:
-    """Preview information shown to the user before upload."""
+    """上传前展示给用户的预览信息。"""
 
     summary: str
     tokens_in_estimate: int
@@ -32,21 +32,21 @@ class UploadPreview:
 def decide_upload_strategy(
     doc: ParsedDocument, mode: str, config
 ) -> UploadDecision:
-    """Determine the upload strategy based on mode and document content.
+    """根据模式和文档内容确定上传策略。
 
-    Modes:
-        quick — always send full text, ignore sensitive info
-        privacy_enhanced — full if no sensitive, redacted if sensitive
-        manual_confirm — send as chunks, always require user confirmation
-        local_fallback — block upload entirely, local-only processing
+    模式说明：
+        quick — 始终发送全文，忽略敏感信息
+        privacy_enhanced — 无敏感信息则发送全文，有则脱敏后发送
+        manual_confirm — 分块发送，始终需要用户确认
+        local_fallback — 完全阻止上传，仅本地处理
 
-    Args:
-        doc: The parsed document.
-        mode: User-selected mode.
-        config: AppConfig instance.
+    参数：
+        doc: 已解析的文档。
+        mode: 用户选择的模式。
+        config: AppConfig 实例。
 
-    Returns:
-        UploadDecision with strategy and supporting data.
+    返回：
+        UploadDecision，包含策略和辅助数据。
     """
     has_sensitive = len(doc.sensitive_matches) > 0
 
@@ -55,7 +55,7 @@ def decide_upload_strategy(
 
     elif mode == "privacy_enhanced":
         if has_sensitive:
-            # Redact sensitive info before sending
+            # 发送前对敏感信息进行脱敏
             redacted_text, redact_map = redact(doc.raw_text, doc.sensitive_matches)
             return UploadDecision(
                 strategy="redacted",
@@ -76,7 +76,7 @@ def decide_upload_strategy(
         return UploadDecision(strategy="blocked")
 
     else:
-        # Unknown mode — safest default: manual confirm
+        # 未知模式 —— 最安全的默认值：手动确认
         return UploadDecision(
             strategy="chunks",
             selected_chunks=list(doc.chunks),
@@ -89,15 +89,15 @@ def generate_preview(
     decision: UploadDecision,
     config,
 ) -> UploadPreview:
-    """Generate a human-readable preview of what will be uploaded.
+    """生成人类可读的上传预览。
 
-    Args:
-        doc: The parsed document.
-        decision: The upload strategy decision.
-        config: AppConfig instance.
+    参数：
+        doc: 已解析的文档。
+        decision: 上传策略决策。
+        config: AppConfig 实例。
 
-    Returns:
-        UploadPreview with summary, token/cost estimates, and sensitive info flags.
+    返回：
+        UploadPreview，包含摘要、token/费用估算以及敏感信息标志。
     """
     if decision.strategy == "blocked":
         return UploadPreview(
@@ -107,7 +107,7 @@ def generate_preview(
             model=config.model_name,
         )
 
-    # Determine what text will be sent
+    # 确定将要发送的文本内容
     if decision.strategy == "full":
         text_to_send = doc.raw_text
     elif decision.strategy == "redacted":
@@ -125,7 +125,7 @@ def generate_preview(
     has_sensitive = len(doc.sensitive_matches) > 0
     sensitive_types = list({m.type for m in doc.sensitive_matches})
 
-    # Build summary
+    # 构建摘要
     file_info = f"文件: {doc.title} ({doc.file_type})"
     strategy_labels = {
         "full": "全文发送",
