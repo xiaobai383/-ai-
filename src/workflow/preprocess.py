@@ -30,7 +30,7 @@ def preprocess(file_paths: List[str], config) -> List[ParsedDocument]:
 
         if config.redaction_enabled:
             from src.tools.redaction import detect_sensitive
-            doc.sensitive_matches = detect_sensitive(doc.raw_text)
+            doc.sensitive_matches = detect_sensitive(doc.raw_text, config.redaction_rules or None)
 
         documents.append(doc)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from src.config import AppConfig
-from src.agent.app import create_agent_with_tools, run_task
+from src.agent.app import run_task
 from src.observability.run_log import RunLog
 
 
@@ -39,7 +39,6 @@ def config():
         api_key="sk-fake-for-testing",
         allowed_paths=["data/", "output/", str(Path(tempfile.gettempdir()))],
         max_file_size_mb=5,
-        max_tool_calls_per_request=15,
         max_tokens_per_request=50000,
         max_cost_per_request_yuan=0.5,
         redaction_enabled=False,

@@ -17,7 +17,6 @@ class AppConfig:
     api_key: str = ""
 
     max_file_size_mb: int = 5
-    max_tool_calls_per_request: int = 15
     max_tokens_per_request: int = 50000
     max_cost_per_request_yuan: float = 0.5
 
@@ -33,6 +32,7 @@ class AppConfig:
     preferences_dir: str = "data/preferences"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    gradio_port: int = 7860
 
     # v0.3 新增 — 监听 / 调度 / 通知
     watch_enabled: bool = False
@@ -89,9 +89,6 @@ class AppConfig:
             config.max_file_size_mb = limits.get(
                 "max_file_size_mb", config.max_file_size_mb
             )
-            config.max_tool_calls_per_request = limits.get(
-                "max_tool_calls_per_request", config.max_tool_calls_per_request
-            )
             config.max_tokens_per_request = limits.get(
                 "max_tokens_per_request", config.max_tokens_per_request
             )
@@ -124,6 +121,7 @@ class AppConfig:
             api_cfg = raw.get("api", {})
             config.api_host = api_cfg.get("host", config.api_host)
             config.api_port = api_cfg.get("port", config.api_port)
+            config.gradio_port = api_cfg.get("gradio_port", config.gradio_port)
 
             # v0.3 新增 — 监听 / 调度 / 通知
             watch_cfg = raw.get("watch", {})

@@ -160,3 +160,15 @@ class PreferenceManager:
         default = UserPreferences()
         self.save(default)
         return default
+
+
+# ── 模块级便捷函数 ──
+
+def load(preferences_dir: str | None = None) -> UserPreferences:
+    """从默认位置加载用户偏好。"""
+    return PreferenceManager(preferences_dir).load()
+
+
+def save(preferences: UserPreferences, preferences_dir: str | None = None) -> None:
+    """保存用户偏好到默认位置。"""
+    PreferenceManager(preferences_dir).save(preferences)

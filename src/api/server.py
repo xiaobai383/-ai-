@@ -5,7 +5,7 @@ from src.api.app import create_api_app
 from src.config import AppConfig
 
 
-def launch_api(config: AppConfig | None = None, host: str = "127.0.0.1", port: int = 8000):
+def launch_api(config: AppConfig | None = None, host: str | None = None, port: int | None = None):
     """启动 FastAPI 服务器。
 
     Args:
@@ -17,8 +17,8 @@ def launch_api(config: AppConfig | None = None, host: str = "127.0.0.1", port: i
         config = AppConfig.from_yaml_and_env()
 
     app = create_api_app(config)
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host or config.api_host, port=port or config.api_port)
 
 
 if __name__ == "__main__":
-    launch_api()
+    launch_api(host=None, port=None)

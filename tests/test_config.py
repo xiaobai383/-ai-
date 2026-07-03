@@ -15,7 +15,6 @@ class TestAppConfig:
         assert config.model_name == "deepseek-v4-flash"
         assert config.model_base_url == "https://api.deepseek.com/v1"
         assert config.max_file_size_mb == 5
-        assert config.max_tool_calls_per_request == 15
         assert config.max_tokens_per_request == 50000
         assert config.max_cost_per_request_yuan == 0.5
 
@@ -76,6 +75,6 @@ class TestAppConfig:
         try:
             config = AppConfig.from_yaml_and_env(yaml_path=yaml_path)
             assert config.max_file_size_mb > 0  # has a default
-            assert config.max_tool_calls_per_request > 0
+            assert config.max_tokens_per_request > 0
         finally:
             os.unlink(yaml_path)

@@ -41,11 +41,13 @@ _DETECTION_RULES: List[Tuple[str, str]] = [
 ]
 
 
-def detect_sensitive(text: str) -> List[SensitiveMatch]:
+def detect_sensitive(text: str, rules_config: Dict[str, bool] | None = None) -> List[SensitiveMatch]:
     """使用正则表达式规则检测文本中的敏感信息。
 
     Args:
         text: 要扫描的文本。
+        rules_config: 可选的规则开关字典，如 {"PHONE": True, "EMAIL": False}。
+                      未提供或为 None 时启用所有规则。
 
     Returns:
         按起始位置排序的 SensitiveMatch 对象列表。
@@ -53,9 +55,16 @@ def detect_sensitive(text: str) -> List[SensitiveMatch]:
     if not text:
         return []
 
+    rules = _DETECTION_RULES
+    if rules_config:
+        rules = [
+            (t, p) for t, p in _DETECTION_RULES
+            if rules_config.get(t, True)
+        ]
+
     matches: List[SensitiveMatch] = []
 
-    for match_type, pattern in _DETECTION_RULES:
+    for match_type, pattern in rules:
         for m in re.finditer(pattern, text):
             value = m.group(0)
             matches.append(

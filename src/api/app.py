@@ -187,6 +187,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
                 config=config,
                 llm=llm,
                 auto_confirm=True,
+                output_format=request.output_format,
             )
 
             duration_ms = int((time.time() - start_time) * 1000)
@@ -357,15 +358,39 @@ def create_api_app(config: AppConfig) -> FastAPI:
             return {"status": "already_running", "message": "Watcher is already running"}
 
         def _on_change(files: List[str]) -> None:
-            """处理文件变更 — 为每个文件触发 run_task。"""
+            """处理文件变更 — 加载模板并为每个文件触发 run_task。"""
+            from src.workflow.templates import load_workflow_template
+
+            try:
+                template = load_workflow_template(
+                    config.watch_workflow_template, config.workflows_dir
+                )
+                query = template.get("description", config.watch_workflow_template)
+            except FileNotFoundError:
+                query = config.watch_workflow_template
+
             for f in files:
                 try:
                     run_task(
-                        query=config.watch_workflow_template,
+                        query=query,
                         files=[f],
                         mode=config.watch_mode,
                         config=config,
                         auto_confirm=True,
+                        output_format=config.default_output_format,
+                    )
+                except Exception:
+                    pass
+
+            # 发送通知
+            if config.notifications_enabled:
+                try:
+                    from src.notify.dispatch import notify
+                    notify(
+                        title="📁 文件变更处理完成",
+                        message=f"处理了 {len(files)} 个文件",
+                        engine=config.notifications_engine,
+                        log_file=config.notifications_log_file,
                     )
                 except Exception:
                     pass
@@ -399,9 +424,26 @@ def create_api_app(config: AppConfig) -> FastAPI:
                         mode=job.mode,
                         config=config,
                         auto_confirm=True,
+                        output_format=job.output_format,
                     )
+
+                    if config.notifications_enabled:
+                        from src.notify.dispatch import notify
+                        notify(
+                            title="⏰ 定时任务完成",
+                            message=f"{job.name}: {job.query[:60]}",
+                            engine=config.notifications_engine,
+                            log_file=config.notifications_log_file,
+                        )
                 except Exception:
-                    pass
+                    if config.notifications_enabled:
+                        from src.notify.dispatch import notify
+                        notify(
+                            title="❌ 定时任务失败",
+                            message=f"{job.name}: {job.query[:60]}",
+                            engine=config.notifications_engine,
+                            log_file=config.notifications_log_file,
+                        )
 
             _engine = SchedulerEngine(config, _exec_cb)
             _engine.start()

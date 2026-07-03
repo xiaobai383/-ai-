@@ -155,6 +155,23 @@ def _format_html(text: str, metadata: Dict[str, Any] | None = None) -> str:
     return html
 
 
+def restore_redactions(text: str, redact_map: Dict[str, str]) -> str:
+    """将脱敏占位符还原为原始值。
+
+    Args:
+        text: 含占位符的文本（如 LLM 响应）。
+        redact_map: 占位符 → 原始值的映射。
+
+    Returns:
+        还原后的文本。
+    """
+    if not redact_map:
+        return text
+    for placeholder, original in redact_map.items():
+        text = text.replace(placeholder, original)
+    return text
+
+
 def validate_save_path(path_str: str, config) -> bool:
     """验证保存路径是否安全。
 
@@ -175,11 +192,6 @@ def validate_save_path(path_str: str, config) -> bool:
         return False
 
     path_str_resolved = str(path)
-
-    # 检查路径穿越尝试
-    if ".." in Path(path_str).parts:
-        # 原始路径包含 .. —— 检查解析后的路径是否仍然安全
-        pass
 
     for allowed in config.allowed_paths:
         allowed_resolved = str(Path(allowed).resolve())

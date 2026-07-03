@@ -9,19 +9,20 @@ import yaml
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "workflows"
 
 
-def _ensure_templates_dir() -> Path:
+def _ensure_templates_dir(dir_override: str | None = None) -> Path:
     """确保模板目录存在。"""
-    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-    return TEMPLATES_DIR
+    target = Path(dir_override) if dir_override else TEMPLATES_DIR
+    target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
-def list_templates() -> List[Dict[str, Any]]:
+def list_templates(templates_dir: str | None = None) -> List[Dict[str, Any]]:
     """列出所有可用的工作流模板。
 
     返回：
         模板元数据字典列表，包含 'name'、'description'、'steps' 字段。
     """
-    templates_dir = _ensure_templates_dir()
+    templates_dir = _ensure_templates_dir(templates_dir)
     templates = []
 
     for template_file in templates_dir.glob("*.yaml"):
@@ -39,11 +40,12 @@ def list_templates() -> List[Dict[str, Any]]:
     return templates
 
 
-def load_workflow_template(name: str) -> Dict[str, Any]:
+def load_workflow_template(name: str, templates_dir: str | None = None) -> Dict[str, Any]:
     """按名称加载工作流模板。
 
     参数：
         name: 模板名称（不含 .yaml 扩展名）。
+        templates_dir: 可选的模板目录覆盖。
 
     返回：
         模板数据字典。
@@ -51,7 +53,7 @@ def load_workflow_template(name: str) -> Dict[str, Any]:
     异常：
         FileNotFoundError: 如果未找到模板。
     """
-    templates_dir = _ensure_templates_dir()
+    templates_dir = _ensure_templates_dir(templates_dir)
     template_path = templates_dir / f"{name}.yaml"
 
     if not template_path.exists():

@@ -9,26 +9,9 @@ from src.tools.cost import check_limits, estimate_cost, estimate_tokens
 from src.tools.file_ops import read_file as _file_read
 from src.tools.file_ops import save_file as _file_save
 from src.tools.redaction import detect_sensitive, redact
-from src.workflow.postprocess import format_output, validate_save_path
+from src.workflow.postprocess import format_output, restore_redactions, validate_save_path
 from src.workflow.preprocess import preprocess
 from src.workflow.upload_policy import decide_upload_strategy, generate_preview
-
-
-def create_agent_with_tools(llm, tools: List):
-    """使用给定工具创建一个 LangChain agent。
-
-    Args:
-        llm: LangChain 兼容的聊天模型。
-        tools: LangChain Tool 对象列表。
-
-    Returns:
-        一个 agent executor（或简单场景下绑定了工具的 llm）。
-    """
-    # v0.1 采用简单方案：将工具绑定到 LLM
-    # 完整的 LangChain create_agent 需要更多配置
-    if hasattr(llm, "bind_tools"):
-        return llm.bind_tools(tools)
-    return llm
 
 
 def run_task(
@@ -38,6 +21,7 @@ def run_task(
     config,
     llm: Any = None,
     auto_confirm: bool = False,
+    output_format: str = "markdown",
 ) -> RunLog:
     """执行完整工作流：预处理 → 上传策略 → LLM → 后处理。
 
@@ -133,7 +117,7 @@ def run_task(
             step_id=len(run_log.steps) + 1,
             name="upload_policy",
             input_preview=f"mode={mode}, files={len(documents)}",
-            output_preview=f"strategy={decision.strategy}, tokens_in_estimate={preview.tokens_in_estimate}",
+            output_preview=f"strategy={decision.strategy}, tokens_in_estimate={preview.tokens_in_estimate}, needs_confirmation={decision.needs_confirmation}",
             duration_ms=duration_ms,
             tokens_in=preview.tokens_in_estimate,
             cost_yuan=preview.cost_estimate,
@@ -168,6 +152,12 @@ def run_task(
     cumulative_cost += preview.cost_estimate
 
     # ── 第 3 步：LLM 调用（或本地兜底） ──
+    # 根据上传策略确定实际发送的文本
+    if decision.strategy in ("redacted", "chunks") and decision.selected_chunks:
+        text_to_send = "\n\n".join(decision.selected_chunks)
+    else:
+        text_to_send = combined_text
+
     if decision.strategy == "blocked":
         # 本地兜底：不调用云端
         t0 = time.time()
@@ -187,14 +177,14 @@ def run_task(
         # 云端 LLM 调用
         t0 = time.time()
         try:
-            result_text = _call_llm(
+            result_text, used_fallback = _call_llm(
                 llm=llm,
                 system_prompt=SYSTEM_PROMPT,
                 user_query=query,
-                context=combined_text,
-                strategy=decision.strategy,
-                redact_map=decision.redact_map,
+                context=text_to_send,
             )
+            if used_fallback:
+                run_log.fallback = True
         except Exception as e:
             duration_ms = int((time.time() - t0) * 1000)
             run_log.steps.append(
@@ -229,10 +219,15 @@ def run_task(
         )
         cumulative_cost += cost
 
+        # 还原脱敏占位符
+        if decision.redact_map:
+            result_text = restore_redactions(result_text, decision.redact_map)
+
     # ── 第 4 步：后处理 ──
     t0 = time.time()
-    formatted = format_output(result_text)
-    output_path = f"output/{run_id}.md"
+    formatted = format_output(result_text, fmt=output_format)
+    ext = {"markdown": ".md", "plain": ".txt", "json": ".json", "html": ".html"}.get(output_format, ".md")
+    output_path = f"output/{run_id}{ext}"
     if not validate_save_path(output_path, config):
         output_path = f"data/{run_id}.md"
 
@@ -288,24 +283,24 @@ def _call_llm(
     system_prompt: str,
     user_query: str,
     context: str,
-    strategy: str,
-    redact_map: dict,
-) -> str:
+) -> tuple[str, bool]:
     """使用给定上下文调用 LLM。
 
     Args:
         llm: LLM 实例（或用于测试的 FakeLLM）。
         system_prompt: 系统提示词文本。
         user_query: 用户的自然语言查询。
-        context: 文档内容。
-        strategy: 所使用的上传策略。
-        redact_map: 脱敏映射表。
+        context: 文档内容（调用方已根据 upload_policy 决定脱敏/全文）。
 
     Returns:
-        LLM 响应文本。
+        (LLM 响应文本, 是否使用了兜底模型) 元组。
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    used_fallback = False
+
     if llm is None:
-        return "（未配置 LLM，无法生成回复）"
+        return "（未配置 LLM，无法生成回复）", False
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -327,20 +322,24 @@ def _call_llm(
                 ),
             ]
             response = llm.invoke(lc_messages)
-            if hasattr(response, "content"):
-                return response.content
-            return str(response)
-        except Exception:
-            pass
+            if hasattr(llm, "used_fallback"):
+                used_fallback = llm.used_fallback
+            text = response.content if hasattr(response, "content") else str(response)
+            return text, used_fallback
+        except Exception as exc:
+            logger.warning("LangChain invoke 失败，回退到直接调用: %s", exc)
 
     # 兜底方案：直接调用
     try:
         response = llm(messages)
-        if hasattr(response, "content"):
-            return response.content
-        return str(response)
-    except Exception:
-        return str(llm._response) if hasattr(llm, "_response") else "Error"
+        if hasattr(llm, "used_fallback"):
+            used_fallback = llm.used_fallback
+        text = response.content if hasattr(response, "content") else str(response)
+        return text, used_fallback
+    except Exception as exc:
+        logger.error("LLM 调用完全失败: %s", exc)
+        text = str(llm._response) if hasattr(llm, "_response") else "Error"
+        return text, False
 
 
 def _local_analysis(query: str, text: str) -> str:

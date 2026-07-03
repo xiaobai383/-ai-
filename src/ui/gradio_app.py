@@ -144,6 +144,7 @@ def build_ui(config: AppConfig):
                             config=config,
                             llm=llm,
                             auto_confirm=True,
+                            output_format=config.default_output_format,
                         )
 
                         # 持久化 RunLog 以支持回放
@@ -543,7 +544,7 @@ def _load_template_list(config: AppConfig) -> str:
     """加载并格式化可用的工作流模板。"""
     try:
         from src.workflow.templates import list_templates
-        templates = list_templates()
+        templates = list_templates(config.workflows_dir)
         lines = []
         for t in templates:
             lines.append(f"  • {t.get('name', '?')} — {t.get('description', '')[:60]}")
@@ -556,7 +557,7 @@ def _load_preferences(config: AppConfig) -> str:
     """加载并格式化用户偏好设置。"""
     try:
         from src.preferences.manager import load
-        prefs = load()
+        prefs = load(config.preferences_dir)
         lines = [
             f"  默认模式: {prefs.get('default_mode', 'privacy_enhanced')}",
             f"  输出格式: {prefs.get('default_output_format', 'markdown')}",
@@ -580,7 +581,7 @@ def launch_ui(config: AppConfig | None = None):
     demo = build_ui(config)
     demo.launch(
         server_name="127.0.0.1",
-        server_port=7860,
+        server_port=config.gradio_port,
         share=False,
         show_error=True,
     )
