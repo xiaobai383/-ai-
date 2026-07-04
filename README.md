@@ -1,8 +1,8 @@
-# 个人 AI 工作流助手 v1.0
+# 个人 AI 工作流助手 v1.1
 
-> 云端智力，本地边界 — 可控上传、可审计执行 · 向量检索 · 模型兜底 · 仪表盘
+> 云端智力，本地边界 — 豆包式会话 · 可控上传 · 向量检索 · 模型兜底
 
-一个面向个人知识和工作文档的 AI 工作流助手。使用云端大模型保证智能效果，同时通过本地预处理、敏感信息脱敏、上传预览、执行日志和成本统计，让每一次 AI 调用都可控、可审计、可追踪。v1.0 新增向量知识库语义检索、本地模型自动降级、执行回放时间线和交互式仪表盘。
+一个面向个人知识和工作文档的 AI 工作流助手。使用云端大模型保证智能效果，同时通过本地预处理、敏感信息脱敏、会话持久化和成本统计，让每一次 AI 调用都可控、可审计、可追踪。v1.1 重构为**豆包式多轮对话**架构，新增会话管理、流式输出、实时余额展示和知识库 RAG 会话注入。
 
 ## 快速开始
 
@@ -95,19 +95,21 @@ python app.py --test
 - 🛑 **熔断保护** — token / 费用超限自动中止
 - 🔒 **路径白名单** — 防止读取敏感系统文件
 
-### v1.0 新增
+### v1.1 新增
 
-- 🧠 **向量知识库** — ChromaDB + Ollama embedding，语义检索历史 RunLog 和输出
+- 💬 **豆包式会话** — 左会话列表 + 右对话区，类似 Doubao/Claude 的聊天体验
+- 🔄 **多轮对话引擎** — 滑动窗口（默认保留最近 6 轮），历史上下文自动拼接
+- 💾 **会话持久化** — JSON 文件存储会话与消息，重启后历史不丢失
+- ⚡ **流式输出** — 打字机效果逐 token 展示，实时提取真实 token 消耗
+- 🧠 **知识库 RAG 注入** — 上传文件经 ChromaDB 向量检索，自动注入对话上下文
+- 💰 **实时余额** — 从 DeepSeek API 同步真实余额，取代本地估算
 - 🏠 **本地模型兜底** — 云端 API 不可用时自动降级到 Ollama 本地模型
-- 📜 **执行回放** — 可筛选搜索的时间线查看器，完整步骤追溯
-- 📈 **交互仪表盘** — Plotly 图表：费用趋势、模式/模型分布、Token 消耗
-- 🎨 **全新 4 标签 UI** — 工作台 / 知识库 / 洞察 / 设置
+- 📈 **交互仪表盘** — 费用趋势、模式/模型分布、Token 消耗
 
 ### v0.2 新增功能
 
 - 🌐 **FastAPI 接口** — RESTful API，支持桌面端/Web 前端接入
 - 📋 **工作流模板** — YAML 定义可复用的工作流
-- ⚙️ **用户偏好记忆** — 保存用户的默认设置
 - 📝 **多格式输出** — 支持 Markdown、纯文本、JSON、HTML
 
 ### v0.3 新增功能
@@ -154,14 +156,15 @@ paths:
 
 # v0.2 新增配置
 output:
-  format: markdown             # 默认输出格式
+  format: markdown                 # 默认输出格式
 
 workflow:
-  templates_dir: workflows     # 工作流模板目录
+  templates_dir: workflows         # 工作流模板目录
 
 api:
-  host: 127.0.0.1              # FastAPI 服务地址
-  port: 8000                   # FastAPI 服务端口
+  host: 127.0.0.1                  # FastAPI 服务地址
+  port: 8000                       # FastAPI 服务端口
+  gradio_port: 7861                # Gradio 界面端口（默认 7860）
 ```
 
 ## 项目结构
@@ -173,13 +176,15 @@ api:
 ├── docker-compose.yml      # Docker 编排
 ├── setup.bat / setup.sh    # 一键安装脚本
 ├── src/
-│   ├── agent/              # Agent 编排 + System Prompt
+│   ├── agent/              # Agent 编排 + 多轮对话引擎 + System Prompt
 │   ├── api/                # FastAPI 接口（v0.2 新增）
 │   ├── tools/              # 文件操作、脱敏、成本估算
 │   ├── workflow/           # 预处理、上传策略、后处理、模板
-│   ├── preferences/        # 用户偏好管理（v0.2 新增）
-│   ├── observability/      # RunLog 可观测
-│   ├── ui/                 # Gradio 界面
+│   ├── knowledge/          # 向量知识库（ChromaDB）+ 会话存储
+│   ├── fallback/           # 本地模型兜底（Ollama）
+│   ├── monitor/            # 文件夹监听（v0.3）
+│   ├── scheduler/          # 定时任务（v0.3）
+│   ├── ui/                 # Gradio 豆包式会话界面
 │   └── config.py           # 配置加载
 ├── workflows/              # 工作流模板目录（v0.2 新增）
 │   ├── summarize.yaml      # 文档总结模板
@@ -194,9 +199,11 @@ api:
 
 - **Agent 框架**: LangChain
 - **模型**: DeepSeek V4 Flash（也支持 OpenAI / 通义千问等兼容 API）
-- **UI**: Gradio
+- **UI**: Gradio（豆包式会话布局）
+- **会话持久化**: JSON 文件（SessionStore）
+- **向量检索**: ChromaDB + Ollama nomic-embed-text
 - **API**: FastAPI + Uvicorn（v0.2 新增）
-- **测试**: pytest
+- **测试**: pytest + E2E 管线测试
 - **部署**: Docker / Docker Compose
 
 ## API 使用示例（v0.2）
@@ -231,11 +238,16 @@ curl -X POST http://127.0.0.1:8000/tasks \
 curl http://127.0.0.1:8000/templates
 ```
 
+---
+
+*更多文档请查看 [最终方案.md](./最终方案.md) 了解架构设计细节。*
+
 ## 版本路线
 
 | 版本 | 目标 |
 |------|------|
 | v0.1 ✅ | 可控上传 + 文档处理闭环 + RunLog |
-| v0.2 ✅ | FastAPI + 工作流模板 + 用户偏好记忆 + 多格式输出 |
+| v0.2 ✅ | FastAPI + 工作流模板 + 多格式输出 |
 | v0.3 ✅ | 文件夹监听、定时任务、批量处理、通知 |
-| v1.0 ✅ | 向量检索 + 本地模型兜底 + 执行回放 + 仪表盘 |
+| v1.0 ✅ | 向量检索 + 本地模型兜底 + 仪表盘 |
+| v1.1 ✅ | 豆包式多轮对话 + 会话管理 + 流式输出 + 实时余额 |
