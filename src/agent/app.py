@@ -1,7 +1,7 @@
 """Agent 编排 —— run_task 主入口点。"""
 import time
 import uuid
-from typing import Any, List
+from typing import Any, Callable, List
 
 from src.agent.prompts import SYSTEM_PROMPT
 from src.observability.run_log import RunLog, StepLog
@@ -22,6 +22,7 @@ def run_task(
     llm: Any = None,
     auto_confirm: bool = False,
     output_format: str = "markdown",
+    stream_callback: Callable[[str], None] | None = None,
 ) -> RunLog:
     """执行完整工作流：预处理 → 上传策略 → LLM → 后处理。
 
@@ -177,11 +178,12 @@ def run_task(
         # 云端 LLM 调用
         t0 = time.time()
         try:
-            result_text, used_fallback = _call_llm(
+            result_text, used_fallback, real_tokens_in, real_tokens_out = _call_llm(
                 llm=llm,
                 system_prompt=SYSTEM_PROMPT,
                 user_query=query,
                 context=text_to_send,
+                stream_callback=stream_callback,
             )
             if used_fallback:
                 run_log.fallback = True
@@ -200,9 +202,14 @@ def run_task(
             return run_log
 
         duration_ms = int((time.time() - t0) * 1000)
-        # 估算输出 token 数
-        tokens_out = estimate_tokens(result_text, config.model_name)
-        cost = estimate_cost(cumulative_tokens_in, tokens_out, config.model_name)
+        # 优先使用 API 返回的真实 token 数，不可用时回退 tiktoken 估算
+        if real_tokens_in > 0:
+            tokens_in = real_tokens_in
+            tokens_out = real_tokens_out
+        else:
+            tokens_out = estimate_tokens(result_text, config.model_name)
+            tokens_in = cumulative_tokens_in
+        cost = estimate_cost(tokens_in, tokens_out, config.model_name)
 
         run_log.steps.append(
             StepLog(
@@ -283,7 +290,8 @@ def _call_llm(
     system_prompt: str,
     user_query: str,
     context: str,
-) -> tuple[str, bool]:
+    stream_callback: Callable[[str], None] | None = None,
+) -> tuple[str, bool, int, int]:
     """使用给定上下文调用 LLM。
 
     Args:
@@ -291,16 +299,18 @@ def _call_llm(
         system_prompt: 系统提示词文本。
         user_query: 用户的自然语言查询。
         context: 文档内容（调用方已根据 upload_policy 决定脱敏/全文）。
+        stream_callback: 可选流式回调，每收到一个 token 块时调用。
 
     Returns:
-        (LLM 响应文本, 是否使用了兜底模型) 元组。
+        (LLM 响应文本, 是否使用了兜底模型, 输入 token 数, 输出 token 数) 元组。
+        token 数从 API 返回的 usage 字段提取，若不可用则为 0。
     """
     import logging
     logger = logging.getLogger(__name__)
     used_fallback = False
 
     if llm is None:
-        return "（未配置 LLM，无法生成回复）", False
+        return "（未配置 LLM，无法生成回复）", False, 0, 0
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -310,7 +320,7 @@ def _call_llm(
         },
     ]
 
-    # 尝试 LangChain invoke
+    # 尝试 LangChain invoke（优先流式）
     if hasattr(llm, "invoke"):
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
@@ -321,11 +331,29 @@ def _call_llm(
                     content=f"## 用户任务\n\n{user_query}\n\n## 文档内容\n\n{context}"
                 ),
             ]
+
+            # 流式路径
+            if stream_callback and hasattr(llm, "stream"):
+                full_text = ""
+                last_chunk = None
+                for chunk in llm.stream(lc_messages):
+                    last_chunk = chunk
+                    chunk_text = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    if chunk_text:
+                        full_text += chunk_text
+                        stream_callback(chunk_text)
+                if hasattr(llm, "used_fallback"):
+                    used_fallback = llm.used_fallback
+                tokens_in, tokens_out = _extract_token_usage(last_chunk) if last_chunk else (0, 0)
+                return full_text, used_fallback, tokens_in, tokens_out
+
+            # 非流式路径
             response = llm.invoke(lc_messages)
             if hasattr(llm, "used_fallback"):
                 used_fallback = llm.used_fallback
             text = response.content if hasattr(response, "content") else str(response)
-            return text, used_fallback
+            tokens_in, tokens_out = _extract_token_usage(response)
+            return text, used_fallback, tokens_in, tokens_out
         except Exception as exc:
             logger.warning("LangChain invoke 失败，回退到直接调用: %s", exc)
 
@@ -335,11 +363,39 @@ def _call_llm(
         if hasattr(llm, "used_fallback"):
             used_fallback = llm.used_fallback
         text = response.content if hasattr(response, "content") else str(response)
-        return text, used_fallback
+        tokens_in, tokens_out = _extract_token_usage(response)
+        return text, used_fallback, tokens_in, tokens_out
     except Exception as exc:
         logger.error("LLM 调用完全失败: %s", exc)
         text = str(llm._response) if hasattr(llm, "_response") else "Error"
-        return text, False
+        return text, False, 0, 0
+
+
+def _extract_token_usage(response) -> tuple[int, int]:
+    """从 LangChain AIMessage 的 response_metadata 中提取真实 token 用量。
+
+    OpenAI 兼容 API（包括 DeepSeek）在 response_metadata.token_usage 中返回
+    {'prompt_tokens': N, 'completion_tokens': M}。
+
+    Args:
+        response: llm.invoke() 返回的 AIMessage。
+
+    Returns:
+        (prompt_tokens, completion_tokens)，提取失败返回 (0, 0)。
+    """
+    try:
+        usage = None
+        if hasattr(response, "response_metadata"):
+            metadata = response.response_metadata or {}
+            usage = metadata.get("token_usage") or metadata.get("usage")
+        if usage is None and hasattr(response, "usage_metadata") and response.usage_metadata:
+            um = response.usage_metadata
+            return (um.get("input_tokens", 0), um.get("output_tokens", 0))
+        if usage:
+            return (usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+    except Exception:
+        pass
+    return (0, 0)
 
 
 def _local_analysis(query: str, text: str) -> str:

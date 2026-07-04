@@ -33,6 +33,7 @@ class AppConfig:
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     gradio_port: int = 7860
+    budget_yuan: float = 10.0
 
     # v0.3 新增 — 监听 / 调度 / 通知
     watch_enabled: bool = False
@@ -122,6 +123,7 @@ class AppConfig:
             config.api_host = api_cfg.get("host", config.api_host)
             config.api_port = api_cfg.get("port", config.api_port)
             config.gradio_port = api_cfg.get("gradio_port", config.gradio_port)
+            config.budget_yuan = float(api_cfg.get("budget_yuan", config.budget_yuan))
 
             # v0.3 新增 — 监听 / 调度 / 通知
             watch_cfg = raw.get("watch", {})
