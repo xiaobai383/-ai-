@@ -36,6 +36,7 @@ class OllamaEmbedder:
         self._available: Optional[bool] = None
         self._last_check: float = 0.0
         self._check_interval: float = 30.0  # 两次可用性探测之间的间隔秒数
+        self._last_embed_time: float = 0.0
 
     def is_available(self) -> bool:
         """检查 Ollama 是否可达且模型可拉取/已加载。
@@ -74,18 +75,30 @@ class OllamaEmbedder:
             logger.warning("Ollama not available, skipping embed")
             return None
 
-        try:
-            resp = requests.post(
-                f"{self._base_url}/api/embeddings",
-                json={"model": self._model, "prompt": text},
-                timeout=self._timeout,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("embedding")
-        except requests.RequestException as e:
-            logger.warning("Ollama embed failed: %s", e)
-            return None
+        # Ollama 不能处理快速连续请求，需要间隔
+        now = time.time()
+        elapsed = now - self._last_embed_time
+        if elapsed < 0.2:
+            time.sleep(0.2 - elapsed)
+
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    f"{self._base_url}/api/embeddings",
+                    json={"model": self._model, "prompt": text},
+                    timeout=self._timeout,
+                )
+                self._last_embed_time = time.time()
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("embedding")
+            except requests.RequestException as e:
+                if attempt < 2:
+                    logger.warning("Ollama embed attempt %d failed: %s, retrying...", attempt + 1, e)
+                    time.sleep(1)
+                else:
+                    logger.warning("Ollama embed failed after 3 attempts: %s", e)
+                    return None
 
     def embed_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
         """逐个为多个文本生成 embedding（Ollama 批量 API 因模型而异）。"""

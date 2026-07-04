@@ -252,6 +252,11 @@ class Indexer:
         col = self.store.get_or_create(collection_name)
 
         for file_path in files:
+            # 跳过太小的文件（测试数据或空结果）
+            if file_path.stat().st_size < 100:
+                stats["skipped"] += 1
+                continue
+
             cache_key = _file_key(file_path)
             if cache_key is None:
                 continue

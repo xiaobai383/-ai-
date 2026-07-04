@@ -4,6 +4,7 @@ ponytail: 跨命名集合的简单 top-k 搜索；无重排序或 BM25+向量混
 升级路径：增加关键词预过滤和交叉编码器重排序。
 """
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -102,7 +103,7 @@ class Searcher:
                 if col.count() == 0:
                     continue
 
-                raw = self.store.query(col, embedding, top_k=top_k, where=where)
+                raw = self.store.query(col, embedding, top_k=top_k * 3, where=where)
 
                 # 展平 ChromaDB 响应
                 doc_lists = raw.get("documents", [[]])
@@ -131,7 +132,20 @@ class Searcher:
             except Exception as e:
                 logger.warning("Search failed for collection '%s': %s", col_name, e)
 
-        # 按分数降序排序
+        # 关键词加权：文档中包含查询词的结果提升分数
+        # 完整查询匹配权重更高，分词匹配权重稍低
+        query_lower = query.lower()
+        query_terms = [t for t in re.split(r'\s+', query_lower) if len(t) > 1]
+        for r in all_results:
+            doc_lower = r.document.lower()
+            hits = sum(1 for t in query_terms if re.search(re.escape(t), doc_lower))
+            # 完整查询出现在文档中，大幅加分
+            if re.search(re.escape(query_lower), doc_lower):
+                r.score = min(1.0, r.score + 0.3)
+            elif hits > 0:
+                r.score = min(1.0, r.score + 0.1 * hits)
+
+        # 按分数降序排序，取 top_k
         all_results.sort(key=lambda r: r.score, reverse=True)
         top = all_results[:top_k]
 

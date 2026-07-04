@@ -46,10 +46,11 @@ class KnowledgeStore:
         return self._client
 
     def get_or_create(self, collection_name: str) -> chromadb.Collection:
-        """返回现有集合或创建新集合（无默认 embedding 函数）。"""
+        """返回现有集合或创建新集合（cosine 距离，无默认 embedding 函数）。"""
         return self.client.get_or_create_collection(
             name=collection_name,
             embedding_function=self._ef,
+            configuration={"hnsw": {"space": "cosine"}},
         )
 
     def close(self) -> None:
