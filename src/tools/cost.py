@@ -1,5 +1,9 @@
 """Token 计数与成本估算工具。"""
+import logging
+
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # 每百万 token 的定价（输入，输出），单位：人民币
 # 美元→人民币汇率 ~7.2
@@ -111,6 +115,7 @@ def fetch_real_balance(
     失败时返回 None，由调用方决定回退策略。
     """
     if not api_key or "sk-fake" in api_key:
+        logger.debug("跳过余额查询：api_key 为空或为假 key")
         return None
 
     # DeepSeek 余额接口不在 /v1 下，需要去掉 base_url 中的 /v1 后缀
@@ -119,13 +124,20 @@ def fetch_real_balance(
         base = base[:-3]
     url = base + "/user/balance"
     try:
+        logger.info("正在查询 DeepSeek 余额: %s", url)
         resp = httpx.get(
             url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=3.0,
+            timeout=5.0,
         )
+        logger.info("DeepSeek 余额响应: status=%d, body=%s", resp.status_code, resp.text[:200])
         resp.raise_for_status()
         data = resp.json()
-        return float(data["balance"])
-    except Exception:
+        # DeepSeek 返回格式: {"balance_infos": [{"total_balance": "6.04", ...}]}
+        infos = data.get("balance_infos") or []
+        if infos:
+            return float(infos[0]["total_balance"])
+        return None
+    except Exception as e:
+        logger.warning("DeepSeek 余额查询失败: %s", e)
         return None

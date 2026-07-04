@@ -8,9 +8,15 @@
     python app.py --api --watch --scheduler  — FastAPI + 监听 + 定时
     python app.py --test       — 运行所有测试
 """
+import logging
 import sys
 
 from src.config import AppConfig
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 
 
 def main():

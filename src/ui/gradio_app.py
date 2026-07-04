@@ -259,7 +259,7 @@ def build_ui(config: AppConfig):
                 with gr.Row():
                     replay_search = gr.Textbox(label="搜索任务", placeholder="输入关键词筛选...", scale=2)
                     replay_mode_filter = gr.Dropdown(
-                        choices=["全部", "quick", "privacy_enhanced", "manual_confirm", "local_fallback"],
+                        choices=["全部", "快速模式", "隐私增强模式", "手动确认模式", "本地兜底模式"],
                         value="全部",
                         label="模式筛选",
                         scale=1,
@@ -274,12 +274,19 @@ def build_ui(config: AppConfig):
 
                 replay_output = gr.HTML(label="执行历史")
 
+                _MODE_MAP = {
+                    "快速模式": "quick",
+                    "隐私增强模式": "privacy_enhanced",
+                    "手动确认模式": "manual_confirm",
+                    "本地兜底模式": "local_fallback",
+                }
+
                 def _render_replay(search, mode_filter, status_filter):
                     """以 HTML 形式渲染执行回放时间线。"""
                     from src.replay.loader import RunLogLoader
 
                     loader = RunLogLoader()
-                    mode = None if mode_filter == "全部" else mode_filter
+                    mode = _MODE_MAP.get(mode_filter) if mode_filter != "全部" else None
                     status = None if status_filter == "全部" else status_filter
                     result = loader.list_all(
                         search=search or None,

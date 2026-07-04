@@ -132,7 +132,7 @@ class TestFetchRealBalance:
     def test_success(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"is_available": True, "balance": "8.56", "currency": "CNY"}
+        mock_resp.json.return_value = {"is_available": True, "balance_infos": [{"currency": "CNY", "total_balance": "8.56", "granted_balance": "0.00", "topped_up_balance": "8.56"}]}
         mock_get.return_value = mock_resp
 
         result = fetch_real_balance("sk-real-key")
