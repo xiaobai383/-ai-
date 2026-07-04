@@ -28,6 +28,8 @@ class SearchResult:
     source: str        # 原始文件路径
     doc_type: str      # "runlog" | "output" | "preferences"
     chunk_index: int = 0
+    user_query: str = ""
+    answer_preview: str = ""
 
 
 @dataclass
@@ -127,6 +129,8 @@ class Searcher:
                         source=str(meta.get("source", "")),
                         doc_type=str(meta.get("doc_type", col_name)),
                         chunk_index=int(meta.get("chunk_index", 0)),
+                        user_query=str(meta.get("user_query", "")),
+                        answer_preview=str(meta.get("answer_preview", "")),
                     ))
 
             except Exception as e:

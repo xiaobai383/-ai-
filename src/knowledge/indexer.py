@@ -54,18 +54,20 @@ def _save_index_state(cache_path: Path, state: Dict[str, str]) -> None:
     cache_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _parse_runlog_file(path: Path) -> str:
-    """解析 JSONL 格式的 RunLog 文件，提取可搜索的纯文本。
+def _parse_runlog_file(path: Path) -> dict:
+    """解析 JSONL 格式的 RunLog 文件，提取可搜索的内容。
 
-    提取 user_query、各步骤的 output_preview 和结果文件内容。
-    返回拼接后的纯文本，供 embedding 使用。
+    返回 {"text": 用于 embedding 的全文, "query": 用户问题, "answer": LLM 回答摘要}。
     """
     content = path.read_text(encoding="utf-8")
     lines = [l for l in content.strip().split("\n") if l]
     if not lines:
-        return ""
+        return {"text": "", "query": "", "answer": ""}
 
     parts = []
+    user_query = ""
+    llm_answer = ""
+
     for line in lines:
         try:
             obj = json.loads(line)
@@ -75,14 +77,17 @@ def _parse_runlog_file(path: Path) -> str:
         if obj.get("type") == "run":
             query = obj.get("user_query", "")
             if query:
+                user_query = query
                 parts.append(f"用户问题: {query}")
         elif obj.get("type") == "step":
             name = obj.get("name", "")
             preview = obj.get("output_preview", "")
             if preview and name != "limit_check":
                 parts.append(f"[{name}] {preview}")
+                if name == "llm_call":
+                    llm_answer = preview
 
-    # 如果有结果文件，也读取其内容
+    # 如果有结果文件，读取完整回答
     result_path = None
     try:
         header = json.loads(lines[0])
@@ -90,17 +95,23 @@ def _parse_runlog_file(path: Path) -> str:
     except (json.JSONDecodeError, IndexError):
         pass
 
+    full_answer = ""
     if result_path:
         rp = Path(result_path)
         if rp.exists():
             try:
                 result_text = rp.read_text(encoding="utf-8")
                 if result_text.strip():
+                    full_answer = result_text
                     parts.append(f"结果:\n{result_text}")
             except Exception:
                 pass
 
-    return "\n\n".join(parts)
+    return {
+        "text": "\n\n".join(parts),
+        "query": user_query,
+        "answer": full_answer or llm_answer,
+    }
 
 
 class Indexer:
@@ -149,11 +160,12 @@ class Indexer:
                 continue
 
             try:
-                text = _parse_runlog_file(file_path)
+                parsed = _parse_runlog_file(file_path)
             except Exception:
                 stats["errors"] += 1
                 continue
 
+            text = parsed["text"]
             if not text:
                 new_state[doc_id] = cache_key or "empty"
                 continue
@@ -181,6 +193,8 @@ class Indexer:
                     "source": str(file_path),
                     "doc_type": "runlog",
                     "chunk_index": i,
+                    "user_query": parsed["query"],
+                    "answer_preview": parsed["answer"][:500],
                 })
                 chunk_embs.append(emb)
 

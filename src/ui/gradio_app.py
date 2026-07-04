@@ -398,14 +398,28 @@ def build_ui(config: AppConfig):
                     html = "<div>"
                     for r in resp.results:
                         score_pct = int(r.score * 100)
-                        html += f"""
-                        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin:6px 0;background:#fff">
-                            <div style="display:flex;justify-content:space-between">
-                                <span style="font-size:12px;color:#6366f1;font-weight:bold">相关性 {score_pct}%</span>
-                                <span style="font-size:11px;color:#999">{r.doc_type} · {r.source}</span>
-                            </div>
-                            <div style="margin-top:6px;font-size:13px;max-height:120px;overflow-y:auto;white-space:pre-wrap">{r.document[:500]}</div>
-                        </div>"""
+                        # runlog 结果显示问题和回答
+                        if r.doc_type == "runlog" and r.user_query:
+                            answer_html = ""
+                            if r.answer_preview:
+                                answer_html = f'<div style="margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;font-size:13px;max-height:200px;overflow-y:auto;white-space:pre-wrap">{r.answer_preview}</div>'
+                            html += f"""
+                            <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin:6px 0;background:#fff">
+                                <div style="display:flex;justify-content:space-between">
+                                    <span style="font-size:13px;font-weight:bold">❓ {r.user_query}</span>
+                                    <span style="font-size:11px;color:#999">相关性 {score_pct}% · {r.source}</span>
+                                </div>
+                                {answer_html}
+                            </div>"""
+                        else:
+                            html += f"""
+                            <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin:6px 0;background:#fff">
+                                <div style="display:flex;justify-content:space-between">
+                                    <span style="font-size:12px;color:#6366f1;font-weight:bold">相关性 {score_pct}%</span>
+                                    <span style="font-size:11px;color:#999">{r.doc_type} · {r.source}</span>
+                                </div>
+                                <div style="margin-top:6px;font-size:13px;max-height:200px;overflow-y:auto;white-space:pre-wrap">{r.document[:500]}</div>
+                            </div>"""
                     html += f"<p style='font-size:12px;color:#999;margin-top:8px'>共 {resp.total_hits} 条匹配</p></div>"
                     return html
 
