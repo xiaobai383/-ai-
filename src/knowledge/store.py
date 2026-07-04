@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # ── 预定义的集合名称 ──
 COLLECTION_RUNLOG = "runlog"
 COLLECTION_OUTPUTS = "outputs"
-COLLECTION_PREFERENCES = "preferences"
+COLLECTION_SESSION_FILES = "session_files"  # 会话上传文件的向量检索（RAG 注入）
 
 
 class KnowledgeStore:
@@ -52,10 +52,6 @@ class KnowledgeStore:
             embedding_function=self._ef,
             configuration={"hnsw": {"space": "cosine"}},
         )
-
-    def close(self) -> None:
-        """干净关闭 ChromaDB 客户端（释放 SQLite 锁）。"""
-        self._client = None
 
     def delete_collection(self, collection_name: str) -> None:
         """如果集合存在则将其删除。"""

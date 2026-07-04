@@ -104,10 +104,6 @@ class FolderWatcher:
 
         logger.info("FolderWatcher 已停止")
 
-    def trigger_now(self) -> None:
-        """手动立即触发处理（flush 当前批次）。"""
-        self._flush_batch()
-
     # ── 内部逻辑 ──
 
     def _watch_loop(self) -> None:

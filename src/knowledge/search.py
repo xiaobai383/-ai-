@@ -11,7 +11,6 @@ from typing import List, Optional
 from src.knowledge.embedder import OllamaEmbedder
 from src.knowledge.store import (
     COLLECTION_OUTPUTS,
-    COLLECTION_PREFERENCES,
     COLLECTION_RUNLOG,
     KnowledgeStore,
 )
@@ -26,7 +25,7 @@ class SearchResult:
     document: str
     score: float       # 0–1，越高越相关
     source: str        # 原始文件路径
-    doc_type: str      # "runlog" | "output" | "preferences"
+    doc_type: str      # "runlog" | "output"
     chunk_index: int = 0
     user_query: str = ""
     answer_preview: str = ""
@@ -42,7 +41,7 @@ class SearchResponse:
     collections_searched: List[str] = field(default_factory=list)
 
 
-ALL_COLLECTIONS = [COLLECTION_RUNLOG, COLLECTION_OUTPUTS, COLLECTION_PREFERENCES]
+ALL_COLLECTIONS = [COLLECTION_RUNLOG, COLLECTION_OUTPUTS]
 
 
 class Searcher:

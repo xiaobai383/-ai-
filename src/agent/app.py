@@ -6,9 +6,7 @@ from typing import Any, Callable, List
 from src.agent.prompts import SYSTEM_PROMPT
 from src.observability.run_log import RunLog, StepLog
 from src.tools.cost import check_limits, estimate_cost, estimate_tokens
-from src.tools.file_ops import read_file as _file_read
 from src.tools.file_ops import save_file as _file_save
-from src.tools.redaction import detect_sensitive, redact
 from src.workflow.postprocess import format_output, restore_redactions, validate_save_path
 from src.workflow.preprocess import preprocess
 from src.workflow.upload_policy import decide_upload_strategy, generate_preview

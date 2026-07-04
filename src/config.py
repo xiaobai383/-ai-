@@ -29,7 +29,6 @@ class AppConfig:
     # v0.2 新增
     default_output_format: str = "markdown"
     workflows_dir: str = "workflows"
-    preferences_dir: str = "data/preferences"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     gradio_port: int = 7860
@@ -116,9 +115,6 @@ class AppConfig:
             workflow_cfg = raw.get("workflow", {})
             config.workflows_dir = workflow_cfg.get("templates_dir", config.workflows_dir)
 
-            preferences_cfg = raw.get("preferences", {})
-            config.preferences_dir = preferences_cfg.get("dir", config.preferences_dir)
-
             api_cfg = raw.get("api", {})
             config.api_host = api_cfg.get("host", config.api_host)
             config.api_port = api_cfg.get("port", config.api_port)
@@ -176,3 +172,47 @@ class AppConfig:
             config.max_file_size_mb = int(max_size_env)
 
         return config
+
+    def save_to_yaml(self, yaml_path: str = "config.yaml") -> None:
+        """把当前配置写回 YAML 文件（前端改配置同步后端）。
+
+        只写回前端可编辑的字段，保留 YAML 中其他原有配置不动。
+         ponytail: 全量重写整个 model/limits/fallback/redaction/api 段，
+        其他段（watch/scheduler/notifications/knowledge）保持原样合并。
+        升级路径：做增量字段级 diff 更新，避免覆盖手动编辑。
+        """
+        # 先读现有 YAML，保留不在编辑范围内的段
+        existing = {}
+        yp = Path(yaml_path)
+        if yp.exists():
+            try:
+                with open(yaml_path, "r", encoding="utf-8") as f:
+                    existing = yaml.safe_load(f) or {}
+            except Exception:
+                existing = {}
+
+        # 更新可编辑段
+        existing["model"] = {
+            "name": self.model_name,
+            "base_url": self.model_base_url,
+        }
+        existing["limits"] = {
+            "max_file_size_mb": self.max_file_size_mb,
+            "max_tokens_per_request": self.max_tokens_per_request,
+            "max_cost_per_request_yuan": self.max_cost_per_request_yuan,
+        }
+        existing["api"] = existing.get("api", {})
+        existing["api"]["budget_yuan"] = self.budget_yuan
+        existing["redaction"] = {
+            "enabled": self.redaction_enabled,
+            "rules": self.redaction_rules,
+        }
+        existing["fallback"] = {
+            "enabled": self.fallback_enabled,
+            "ollama_base_url": self.fallback_ollama_base_url,
+            "ollama_model": self.fallback_ollama_model,
+            "timeout_seconds": self.fallback_timeout_seconds,
+        }
+
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            yaml.dump(existing, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
