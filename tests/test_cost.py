@@ -1,6 +1,7 @@
 """Tests for cost estimation module."""
 import pytest
-from src.tools.cost import estimate_tokens, estimate_cost, check_limits, MODEL_PRICING
+from unittest.mock import patch, MagicMock
+from src.tools.cost import estimate_tokens, estimate_cost, check_limits, MODEL_PRICING, fetch_real_balance
 
 
 class TestEstimateTokens:
@@ -122,3 +123,29 @@ class TestCheckLimits:
             },
         )
         assert blocked is False
+
+
+class TestFetchRealBalance:
+    """Tests for DeepSeek real balance fetching."""
+
+    @patch("src.tools.cost.httpx.get")
+    def test_success(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"is_available": True, "balance": "8.56", "currency": "CNY"}
+        mock_get.return_value = mock_resp
+
+        result = fetch_real_balance("sk-real-key")
+        assert result == pytest.approx(8.56)
+        mock_get.assert_called_once()
+
+    @patch("src.tools.cost.httpx.get")
+    def test_api_error_returns_none(self, mock_get):
+        mock_get.side_effect = Exception("connection refused")
+        assert fetch_real_balance("sk-real-key") is None
+
+    def test_fake_key_returns_none(self):
+        assert fetch_real_balance("sk-fake-test") is None
+
+    def test_empty_key_returns_none(self):
+        assert fetch_real_balance("") is None

@@ -1,4 +1,5 @@
 """Token 计数与成本估算工具。"""
+import httpx
 
 # 每百万 token 的定价（输入，输出），单位：人民币
 # 美元→人民币汇率 ~7.2
@@ -99,3 +100,32 @@ def check_limits(
         return True, "; ".join(reasons)
 
     return False, ""
+
+
+def fetch_real_balance(
+    api_key: str, base_url: str = "https://api.deepseek.com/v1"
+) -> float | None:
+    """从 DeepSeek API 获取真实账户余额（CNY）。
+
+    调用 GET https://api.deepseek.com/user/balance 接口（注意：不在 /v1 路径下）。
+    失败时返回 None，由调用方决定回退策略。
+    """
+    if not api_key or "sk-fake" in api_key:
+        return None
+
+    # DeepSeek 余额接口不在 /v1 下，需要去掉 base_url 中的 /v1 后缀
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    url = base + "/user/balance"
+    try:
+        resp = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=3.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return float(data["balance"])
+    except Exception:
+        return None

@@ -4,11 +4,11 @@ ponytail：简单的 try/except 兜底，无重试退避或熔断器。
 升级路径：为生产环境添加指数退避 + 熔断状态跟踪。
 """
 import logging
-from typing import Any, List, Optional
+from typing import Any, Iterator, List, Optional
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 from pydantic import ConfigDict
 
@@ -42,6 +42,24 @@ class FallbackChatModel(BaseChatModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    def _build_primary(self) -> ChatOpenAI:
+        return ChatOpenAI(
+            model=self.primary_model,
+            api_key=self.api_key,
+            base_url=self.primary_base_url,
+            temperature=0.3,
+            timeout=self.timeout,
+        )
+
+    def _build_fallback(self) -> ChatOpenAI:
+        return ChatOpenAI(
+            model=self.fallback_model,
+            api_key="ollama",
+            base_url=self.fallback_base_url,
+            temperature=0.3,
+            timeout=60,
+        )
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -52,34 +70,45 @@ class FallbackChatModel(BaseChatModel):
         """先尝试主 API，失败则回退到 Ollama。"""
         self.used_fallback = False
 
-        # 尝试主 API
         try:
-            primary = ChatOpenAI(
-                model=self.primary_model,
-                api_key=self.api_key,
-                base_url=self.primary_base_url,
-                temperature=0.3,
-                timeout=self.timeout,
-            )
-            result = primary._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            result = self._build_primary()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             return result
         except Exception as e:
             logger.warning("主 LLM (%s) 失败：%s。正在回退到 Ollama。", self.primary_model, e)
 
-        # 回退到 Ollama
         try:
-            fallback = ChatOpenAI(
-                model=self.fallback_model,
-                api_key="ollama",  # Ollama 不验证
-                base_url=self.fallback_base_url,
-                temperature=0.3,
-                timeout=60,  # 本地模型可能较慢
-            )
-            result = fallback._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            result = self._build_fallback()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             self.used_fallback = True
             return result
         except Exception as e:
             logger.error("兜底 LLM (%s) 也失败了：%s", self.fallback_model, e)
+            raise
+
+    def _stream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        """流式输出 — 先尝试主 API，失败则回退到 Ollama。"""
+        self.used_fallback = False
+
+        # 尝试主流式
+        try:
+            for chunk in self._build_primary()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                yield chunk
+            return
+        except Exception as e:
+            logger.warning("主 LLM 流式 (%s) 失败：%s。正在回退到 Ollama。", self.primary_model, e)
+
+        # 回退流式
+        try:
+            for chunk in self._build_fallback()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                self.used_fallback = True
+                yield chunk
+        except Exception as e:
+            logger.error("兜底 LLM 流式 (%s) 也失败了：%s", self.fallback_model, e)
             raise
 
     @property

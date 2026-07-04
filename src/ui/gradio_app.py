@@ -1,4 +1,9 @@
 """个人 AI 工作流助手 Gradio 界面 — v1.0 四标签页布局。"""
+import time as _time
+import tempfile
+from pathlib import Path
+from queue import Empty, Queue
+from threading import Thread
 from typing import List
 
 import gradio as gr
@@ -92,7 +97,9 @@ def build_ui(config: AppConfig):
                         return "（未选择文件）"
                     lines = []
                     for f in files:
-                        lines.append(f"📄 {f.name} ({f.size} bytes)")
+                        path = f.name if hasattr(f, "name") else str(f)
+                        size = Path(path).stat().st_size
+                        lines.append(f"📄 {path} ({size} bytes)")
                     return "\n".join(lines)
 
                 file_input.change(fn=on_file_upload, inputs=[file_input], outputs=[preview_panel])
@@ -104,6 +111,11 @@ def build_ui(config: AppConfig):
                     if not files:
                         yield "❌ 请选择至少一个文件", "", "## 错误\n\n请选择至少一个文件", ""
                         return
+
+                    # Gradio 将上传文件放在系统临时目录，需加入安全白名单
+                    tmp_dir = str(Path(tempfile.gettempdir()))
+                    if tmp_dir not in config.allowed_paths:
+                        config.allowed_paths.append(tmp_dir)
 
                     file_paths = [f.name for f in files]
                     progress_lines: List[str] = []
@@ -137,21 +149,59 @@ def build_ui(config: AppConfig):
                                     model_kwargs={"extra_body": {"thinking": {"type": "enabled"}}},
                                 )
 
-                        run_log = run_task(
-                            query=query,
-                            files=file_paths,
-                            mode=mode,
-                            config=config,
-                            llm=llm,
-                            auto_confirm=True,
-                            output_format=config.default_output_format,
-                        )
+                        # 真流式：线程跑 run_task，队列实时推送 LLM 输出
+                        chunk_queue: Queue = Queue()
+                        _DONE = object()
 
-                        # 持久化 RunLog 以支持回放
-                        try:
-                            run_log.save_to_disk("data/logs")
-                        except Exception:
-                            pass
+                        def _bg_run():
+                            def _on_chunk(text: str):
+                                chunk_queue.put(text)
+                            try:
+                                result = run_task(
+                                    query=query, files=file_paths, mode=mode,
+                                    config=config, llm=llm, auto_confirm=True,
+                                    output_format=config.default_output_format,
+                                    stream_callback=_on_chunk,
+                                )
+                                try:
+                                    result.save_to_disk("data/logs")
+                                except Exception:
+                                    pass
+                                chunk_queue.put(_DONE)
+                                chunk_queue.put(result)
+                            except Exception as e:
+                                chunk_queue.put(_DONE)
+                                chunk_queue.put(e)
+
+                        thread = Thread(target=_bg_run, daemon=True)
+                        thread.start()
+
+                        # 实时流式输出
+                        accumulated = ""
+                        while True:
+                            try:
+                                item = chunk_queue.get(timeout=0.1)
+                            except Empty:
+                                if not accumulated:
+                                    yield ("\n".join(progress_lines), "", "⏳ 正在生成...", "")
+                                continue
+                            if item is _DONE:
+                                break
+                            accumulated += item
+                            yield (
+                                "\n".join(progress_lines + [f"📝 流式输出中 ({len(accumulated)} 字)"]),
+                                "",
+                                accumulated,
+                                "",
+                            )
+
+                        result = chunk_queue.get()
+                        thread.join()
+
+                        if isinstance(result, Exception):
+                            raise result
+
+                        run_log = result
 
                         for step in run_log.steps:
                             icon = "✅" if step.status == "success" else "❌"
@@ -159,30 +209,25 @@ def build_ui(config: AppConfig):
                                 f"{icon} {step.name} — {step.output_preview} ({step.duration_ms}ms)"
                             )
 
-                        result_md = "## 执行完成\n\n"
-                        if run_log.result_path:
-                            from pathlib import Path
+                        result_md = accumulated if accumulated else "## 执行完成\n\n"
+                        if not accumulated and run_log.result_path:
                             result_file = Path(run_log.result_path)
                             if result_file.exists():
                                 result_md = result_file.read_text(encoding="utf-8")
-                            else:
-                                result_md += f"结果已保存到 `{run_log.result_path}`"
-                        else:
-                            result_md += "（未生成结果文件）"
 
                         if run_log.fallback:
                             result_md = "⚠️ 本次执行使用了本地模型兜底（云端 API 不可用）\n\n" + result_md
 
+                        total_spent = _compute_total_spent(config)
+                        balance, balance_src = _fetch_balance(config)
+
                         log_summary = (
                             f"Run ID: {run_log.run_id}\n"
-                            f"模式: {run_log.mode}\n"
-                            f"模型: {run_log.model}\n"
-                            f"步骤数: {len(run_log.steps)}\n"
-                            f"输入 token: {run_log.total_tokens_in}\n"
-                            f"输出 token: {run_log.total_tokens_out}\n"
-                            f"预计费用: ¥{run_log.total_cost_yuan:.6f}\n"
+                            f"模式: {run_log.mode} | 模型: {run_log.model}\n"
+                            f"本次费用: ¥{run_log.total_cost_yuan:.6f}\n"
+                            f"累计费用: ¥{total_spent:.4f}\n"
+                            f"余额: ¥{balance:.4f}（{balance_src}）\n"
                             f"本地兜底: {'是' if run_log.fallback else '否'}\n"
-                            f"结果路径: {run_log.result_path or 'N/A'}\n"
                         )
 
                         yield (
@@ -220,8 +265,8 @@ def build_ui(config: AppConfig):
                         scale=1,
                     )
                     replay_status_filter = gr.Dropdown(
-                        choices=["全部", "success", "failed"],
-                        value="全部",
+                        choices=["success", "failed"],
+                        value="success",
                         label="状态筛选",
                         scale=1,
                     )
@@ -243,25 +288,34 @@ def build_ui(config: AppConfig):
                         limit=20,
                     )
 
+                    total_spent = _compute_total_spent(config)
+                    balance, balance_src = _fetch_balance(config)
+                    balance_color = "#16a34a" if balance > 0 else "#dc2626"
+                    header = (
+                        f'<div style="margin-bottom:8px;padding:8px 12px;background:#f0f0ff;border-radius:8px;font-size:13px">'
+                        f'💰 累计费用: <strong>¥{total_spent:.4f}</strong> &nbsp;|&nbsp;'
+                        f'🪙 余额: <strong style="color:{balance_color}">¥{balance:.4f}</strong>'
+                        f'（{balance_src}）'
+                        f'</div>'
+                    )
+
                     if not result.items:
-                        return "<p style='color:#999'>暂无执行记录</p>"
+                        return header + "<p style='color:#999'>暂无执行记录</p>"
 
-                    html = '<div style="max-height:500px;overflow-y:auto">'
+                    html = header + '<div style="max-height:450px;overflow-y:auto">'
                     for item in result.items:
+                        if item.status != "success":
+                            continue
                         fb_badge = " ⚠️ 本地兜底" if item.fallback else ""
-                        status_icon = "✅" if item.status == "success" else "❌"
-
                         cost_str = f"¥{item.total_cost_yuan:.4f}" if item.total_cost_yuan > 0 else "¥0"
                         html += f"""
                         <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin:6px 0;background:#fff">
                             <div style="display:flex;justify-content:space-between;align-items:center">
-                                <strong>{status_icon} {item.user_query[:50]}</strong>
-                                <span style="font-size:12px;color:#999">{item.run_id}</span>
+                                <strong>{item.user_query[:50]}</strong>
+                                <span style="font-size:12px;color:#999">{cost_str}{fb_badge}</span>
                             </div>
-                            <div style="font-size:12px;color:#666;margin-top:4px">
-                                模式: {item.mode} | 模型: {item.model} | 步骤: {item.step_count}步
-                                | Token: {item.total_tokens_in}→{item.total_tokens_out}
-                                | 费用: {cost_str}{fb_badge}
+                            <div style="font-size:11px;color:#999;margin-top:2px">
+                                {item.mode} · {item.model} · {item.run_id}
                             </div>
                         </div>"""
                     html += "</div>"
@@ -538,6 +592,35 @@ def build_ui(config: AppConfig):
                 )
 
     return demo
+
+
+def _compute_total_spent(config: AppConfig) -> float:
+    """扫描 data/logs/ 下所有 JSONL 计算累计费用。"""
+    import json as _json
+    logs_dir = Path("data/logs")
+    total = 0.0
+    if logs_dir.exists():
+        for fp in logs_dir.glob("run-*.jsonl"):
+            try:
+                first = fp.read_text(encoding="utf-8").split("\n")[0]
+                total += float(_json.loads(first).get("total_cost_yuan", 0))
+            except Exception:
+                pass
+    return total
+
+
+def _fetch_balance(config: AppConfig) -> tuple[float, str]:
+    """获取余额信息。返回 (余额, 来源标签)。
+
+    优先从 DeepSeek API 获取真实余额，失败时回退到本地估算。
+    """
+    from src.tools.cost import fetch_real_balance
+
+    real = fetch_real_balance(config.api_key, config.model_base_url)
+    if real is not None:
+        return real, "DeepSeek API"
+    total_spent = _compute_total_spent(config)
+    return config.budget_yuan - total_spent, "本地估算"
 
 
 def _load_template_list(config: AppConfig) -> str:
