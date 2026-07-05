@@ -20,6 +20,7 @@ def build_context_prompt(
     history: List[dict],
     current_query: str,
     file_context: str = "",
+    long_term_memory: str = "",
     max_turns: int = 6,
 ) -> str:
     """把历史对话 + 文件检索片段 + 当前问题拼接为上下文 prompt。
@@ -32,6 +33,7 @@ def build_context_prompt(
         history: 历史轮次列表，每项含 role / content。
         current_query: 当前用户问题。
         file_context: 可选，从 ChromaDB 检索到的文件片段文本。
+        long_term_memory: 可选，从 conversation_memory 召回的相关历史记忆。
         max_turns: 保留的最大对话轮数（默认 6 轮 = 12 条消息）。
 
     Returns:
@@ -54,6 +56,9 @@ def build_context_prompt(
             lines.append(f"{role_label}：{msg['content']}")
         lines.append("")
 
+    if long_term_memory:
+        lines += ["## 相关历史记忆", "", long_term_memory, ""]
+
     if file_context:
         lines += ["## 参考文件（来自上传）", "", file_context, ""]
 
@@ -66,7 +71,7 @@ def retrieve_file_context(
     query: str,
     config,
     top_k: int = 3,
-) -> str:
+) -> tuple[str, dict]:
     """从 ChromaDB 检索当前会话上传文件的相关片段（RAG 注入）。
 
     用 Searcher 在 COLLECTION_SESSION_FILES 集合中检索，where session_id 过滤。
@@ -79,9 +84,11 @@ def retrieve_file_context(
         top_k: 检索结果数。
 
     Returns:
-        拼接后的文件片段文本，无结果时返回空字符串。
+        (file_context, file_redact_map) — 文件片段文本 + 文件级脱敏映射。
     """
     try:
+        import json as _json
+
         from src.knowledge.embedder import OllamaEmbedder
         from src.knowledge.store import COLLECTION_SESSION_FILES, KnowledgeStore
 
@@ -91,25 +98,26 @@ def retrieve_file_context(
             model=config.knowledge_embed_model,
         )
         if not embedder.is_available():
-            return ""
+            return "", {}
 
         col = store.get_or_create(COLLECTION_SESSION_FILES)
         if col.count() == 0:
-            return ""
+            return "", {}
 
         query_emb = embedder.embed(query)
         if query_emb is None:
-            return ""
+            return "", {}
 
         # where session_id 过滤，只检索当前会话的文件
         raw = store.query(col, query_emb, top_k=top_k, where={"session_id": session_id})
         docs = raw.get("documents", [[]])
         if not docs or not docs[0]:
-            return ""
+            return "", {}
 
         metas = raw.get("metadatas", [[]])
         dists = raw.get("distances", [[]])
         fragments: List[str] = []
+        file_redact_map: dict = {}
         for i, doc in enumerate(docs[0]):
             dist = dists[0][i] if dists and i < len(dists[0]) else 1.0
             score = max(0.0, min(1.0, 1.0 - (dist / 2.0)))
@@ -118,11 +126,18 @@ def retrieve_file_context(
             meta = metas[0][i] if metas and i < len(metas[0]) else {}
             source = meta.get("source", "未知文件")
             fragments.append(f"[{source} 相关度{int(score*100)}%]\n{doc[:2000]}")
+            # 收集文件级 redact_map
+            frm = meta.get("redact_map")
+            if frm:
+                try:
+                    file_redact_map.update(_json.loads(frm))
+                except Exception:
+                    pass
 
-        return "\n\n".join(fragments) if fragments else ""
+        return ("\n\n".join(fragments) if fragments else ""), file_redact_map
     except Exception as exc:
         logger.warning("文件 RAG 检索失败，降级为纯对话: %s", exc)
-        return ""
+        return "", {}
 
 
 def chat_stream(
@@ -130,6 +145,7 @@ def chat_stream(
     query: str,
     llm,
     file_context: str = "",
+    long_term_memory: str = "",
     usage_out: Optional[dict] = None,
 ) -> Iterator[str]:
     """流式多轮对话生成器，逐块 yield LLM 输出文本。
@@ -144,6 +160,7 @@ def chat_stream(
         query: 当前用户问题。
         llm: LangChain 兼容聊天模型实例（FallbackChatModel / ChatOpenAI）。
         file_context: 可选，从 ChromaDB 检索到的文件片段文本。
+        long_term_memory: 可选，从 conversation_memory 召回的相关历史记忆。
         usage_out: 可选，流式结束后写入 token 用量 {tokens_in, tokens_out, used_fallback}。
 
     Yields:
@@ -151,7 +168,7 @@ def chat_stream(
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    context_prompt = build_context_prompt(history, query, file_context)
+    context_prompt = build_context_prompt(history, query, file_context, long_term_memory)
     messages = [
         SystemMessage(content=CHAT_SYSTEM_PROMPT),
         HumanMessage(content=context_prompt),
@@ -161,8 +178,11 @@ def chat_stream(
         yield "（未配置 LLM，无法生成回复）"
         return
 
-    def _fill_usage(response_obj):
-        """从 LLM 响应/最后 chunk 提取 token usage 写入 usage_out。"""
+    def _fill_usage(response_obj, final_text: str = ""):
+        """从 LLM 响应/最后 chunk 提取 token usage 写入 usage_out。
+
+        如果 API 未返回 token 用量（流式场景常见），用 tiktoken 从文本估算。
+        """
         if usage_out is None:
             return
         try:
@@ -170,6 +190,19 @@ def chat_stream(
             ti, to = _extract_token_usage(response_obj)
         except Exception:
             ti, to = 0, 0
+
+        # API 未返回用量时，从文本估算
+        if ti == 0 and to == 0 and final_text:
+            try:
+                from src.tools.cost import estimate_tokens
+                from src.config import AppConfig
+                # 估算输入：历史 + 当前问题（粗略）
+                ti = estimate_tokens(query, "default")
+                # 估算输出：LLM 回复文本
+                to = estimate_tokens(final_text, "default")
+            except Exception:
+                pass
+
         usage_out["tokens_in"] = ti
         usage_out["tokens_out"] = to
         usage_out["used_fallback"] = getattr(llm, "used_fallback", False)
@@ -178,12 +211,14 @@ def chat_stream(
     if hasattr(llm, "stream"):
         try:
             last_chunk = None
+            streamed_text = ""
             for chunk in llm.stream(messages):
                 last_chunk = chunk
                 chunk_text = chunk.content if hasattr(chunk, "content") else str(chunk)
                 if chunk_text:
+                    streamed_text += chunk_text
                     yield chunk_text
-            _fill_usage(last_chunk)
+            _fill_usage(last_chunk, streamed_text)
             return
         except Exception as exc:
             logger.warning("对话流式失败，回退 invoke: %s", exc)
@@ -191,5 +226,71 @@ def chat_stream(
     # 非流式兜底
     response = llm.invoke(messages)
     text = response.content if hasattr(response, "content") else str(response)
-    _fill_usage(response)
+    _fill_usage(response, text)
     yield text
+
+
+def smart_retrieve(
+    session_id: str, query: str, config, llm,
+    history: List[dict], store=None, embedder=None,
+) -> tuple[str, str, dict]:
+    """意图感知检索：分类 → 路由 → 返回 (file_context, long_term_memory, redact_map)。"""
+    from src.agent.intent import classify_intent
+    from src.agent.memory import recall_long_term_memory, rewrite_query
+
+    if store is None:
+        from src.knowledge.store import KnowledgeStore
+        store = KnowledgeStore(persist_dir=config.knowledge_chroma_dir)
+    if embedder is None:
+        from src.knowledge.embedder import OllamaEmbedder
+        embedder = OllamaEmbedder(
+            base_url=config.knowledge_embed_base_url,
+            model=config.knowledge_embed_model,
+        )
+    if not embedder.is_available():
+        return "", "", {}
+
+    # Step 1: Query 改写（指代消解）
+    if getattr(config, 'query_rewrite_enabled', True):
+        use_llm = getattr(config, 'query_rewrite_use_llm', True)
+        rewritten = rewrite_query(history, query, llm, use_llm=use_llm)
+    else:
+        rewritten = query
+
+    # Step 2: 意图分类（关键词 + LLM 辅助）
+    intent = classify_intent(rewritten, llm=llm)
+
+    # Step 3: 路由检索
+    file_context = ""
+    file_redact_map = {}
+
+    if intent == "qa":
+        file_context, file_redact_map = retrieve_file_context(session_id, rewritten, config)
+    elif intent == "summarize_full":
+        import json as _json
+        from src.knowledge.store import COLLECTION_SESSION_FILES
+        col = store.get_or_create(COLLECTION_SESSION_FILES)
+        raw = col.get(where={"session_id": session_id}, include=["documents", "metadatas"])
+        all_docs = raw.get("documents", [])
+        all_metas = raw.get("metadatas", [])
+        for meta in all_metas:
+            frm = meta.get("redact_map")
+            if frm:
+                try:
+                    file_redact_map.update(_json.loads(frm))
+                except Exception:
+                    pass
+        if all_docs:
+            from src.agent.summarize import summarize_all_chunks
+            file_context = summarize_all_chunks(all_docs, llm)
+    elif intent == "summarize_topic":
+        from src.agent.summarize import topic_focused_retrieval
+        chunks = topic_focused_retrieval(session_id, rewritten, config, embedder, store)
+        file_context = "\n\n".join(chunks)
+
+    # Step 4: 长期记忆召回
+    long_term = ""
+    if getattr(config, 'conversation_memory_enabled', True):
+        long_term = recall_long_term_memory(store, embedder, session_id, rewritten)
+
+    return file_context, long_term, file_redact_map

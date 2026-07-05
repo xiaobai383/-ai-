@@ -3,6 +3,7 @@
 布局：左侧会话列表 + 右侧对话区（模式/文件/Chatbot/输入）+ 洞察 + 设置。
 会话消息用 JSON 存储（SessionStore），上传文件走 ChromaDB 向量检索（RAG 注入）。
 """
+import logging
 import tempfile
 from pathlib import Path
 from queue import Empty, Queue
@@ -14,20 +15,11 @@ import gradio as gr
 from src.config import AppConfig
 from src.knowledge.session_store import SessionStore
 
+logger = logging.getLogger(__name__)
 
-# ── 模式选项（会话级，新建会话时选） ──
-MODE_CHOICES = [
-    ("快速模式", "quick"),
-    ("隐私增强（推荐）", "privacy_enhanced"),
-    ("手动确认", "manual_confirm"),
-    ("本地兜底", "local_fallback"),
-]
-_MODE_LABEL = {
-    "quick": "快速模式",
-    "privacy_enhanced": "隐私增强",
-    "manual_confirm": "手动确认",
-    "local_fallback": "本地兜底",
-}
+
+# ── 模式常量 ──
+_DEFAULT_MODE = "privacy_enhanced"
 
 
 def build_ui(config: AppConfig):
@@ -54,12 +46,6 @@ def build_ui(config: AppConfig):
                     # ── 左侧：会话列表 ──
                     with gr.Column(scale=1, min_width=220):
                         gr.Markdown("### 会话列表")
-                        new_mode = gr.Dropdown(
-                            choices=MODE_CHOICES,
-                            value="privacy_enhanced",
-                            label="新建模式",
-                            scale=1,
-                        )
                         new_btn = gr.Button("➕ 新建会话", variant="primary", size="sm")
                         session_radio = gr.Radio(
                             choices=_session_choices(config),
@@ -113,10 +99,10 @@ def build_ui(config: AppConfig):
 
                 # ════════════ 事件处理 ════════════
 
-                def _on_new_session(mode):
+                def _on_new_session():
                     """新建会话：创建 → 刷新列表 → 自动选中 → 清空对话。"""
                     store = SessionStore()
-                    s = store.create_session(mode=mode)
+                    s = store.create_session(mode=_DEFAULT_MODE)
                     choices = _session_choices(config)
                     header = _render_session_header(s)
                     return (
@@ -126,36 +112,47 @@ def build_ui(config: AppConfig):
                         s["id"],  # current_session
                         "",  # chat_input
                         "新会话已创建",  # upload_status
+                        _render_status_bar(config, session_id=s["id"]),  # status_bar
                     )
 
                 def _on_switch_session(session_id):
-                    """切换会话：加载消息渲染到 Chatbot。"""
+                    """切换会话：加载消息渲染到 Chatbot + 刷新当前会话费用。"""
                     if not session_id:
-                        return [], '<div class="status-bar">请选择会话</div>', session_id, ""
+                        return [], '<div class="status-bar">请选择会话</div>', session_id, "", _render_status_bar(config)
                     store = SessionStore()
                     s = store.get_session(session_id)
                     if not s:
-                        return [], '<div class="status-bar">会话不存在</div>', session_id, ""
+                        return [], '<div class="status-bar">会话不存在</div>', session_id, "", _render_status_bar(config)
                     msgs = store.get_messages(session_id)
-                    # 渲染为 Chatbot messages 格式
-                    display = [
-                        {"role": m["role"], "content": m["content"]} for m in msgs
-                    ]
+                    # 渲染为 Chatbot messages 格式（展示时还原脱敏占位符）
+                    from src.workflow.postprocess import restore_redactions
+                    display = []
+                    for m in msgs:
+                        content = m["content"]
+                        rm = m.get("redact_map")
+                        if rm:
+                            content = restore_redactions(content, rm)
+                        display.append({"role": m["role"], "content": content})
                     header = _render_session_header(s)
-                    return display, header, session_id, ""
+                    return display, header, session_id, "", _render_status_bar(config, session_id=session_id)
 
                 def _on_upload(files, session_id):
                     """文件上传后向量化存 ChromaDB（带 session_id，供 RAG 检索）。"""
-                    if not files or not session_id:
-                        return "未选择文件或未选择会话"
+                    if not session_id:
+                        return "⚠️ 请先在左侧新建或选择一个会话，再上传文件"
+                    if not files:
+                        return "未选择文件"
+
                     # Gradio 临时目录加入白名单
                     tmp_dir = str(Path(tempfile.gettempdir()))
                     if tmp_dir not in config.allowed_paths:
                         config.allowed_paths.append(tmp_dir)
 
                     try:
-                        added = _index_uploaded_files(files, session_id, config)
-                        return f"✅ 已索引 {added} 个文件块到当前会话，对话时会自动检索相关内容"
+                        added = _index_uploaded_files(files, session_id, config, mode=_DEFAULT_MODE)
+                        if added == 0:
+                            return "⚠️ 索引了 0 个文件块，请检查文件内容是否为空或 Ollama 是否正常运行"
+                        return f"✅ 已索引 {added} 个文件块（已脱敏）到当前会话，对话时会自动检索相关内容"
                     except Exception as exc:
                         return f"⚠️ 索引失败：{exc}"
 
@@ -172,55 +169,107 @@ def build_ui(config: AppConfig):
                     if not message:
                         store = SessionStore()
                         msgs = store.get_messages(session_id)
-                        display = [{"role": m["role"], "content": m["content"]} for m in msgs]
+                        from src.workflow.postprocess import restore_redactions
+                        display = []
+                        for m in msgs:
+                            content = m["content"]
+                            rm = m.get("redact_map")
+                            if rm:
+                                content = restore_redactions(content, rm)
+                            display.append({"role": m["role"], "content": content})
                         yield display, gr.update(), session_id, "", "", gr.update()
                         return
 
                     store = SessionStore()
                     # 取历史消息（不含当前）
                     history = store.get_messages(session_id)
-                    history_display = [
-                        {"role": m["role"], "content": m["content"]} for m in history
-                    ]
+                    from src.workflow.postprocess import restore_redactions
+                    history_display = []
+                    for m in history:
+                        content = m["content"]
+                        rm = m.get("redact_map")
+                        if rm:
+                            content = restore_redactions(content, rm)
+                        history_display.append({"role": m["role"], "content": content})
 
                     # 渲染：历史 + 当前用户消息 + 空 assistant 占位
                     history_display.append({"role": "user", "content": message})
                     history_display.append({"role": "assistant", "content": ""})
                     yield history_display, gr.update(), session_id, "", "", gr.update()
 
-                    # 【替换原有 LLM 调用逻辑的位置】
-                    # 多轮对话路径：历史对话 + 文件 RAG 检索 + 当前问题 → 流式调用 LLM
-                    from src.agent.chat import chat_stream, retrieve_file_context
+                    # ── 脱敏用户输入（默认隐私增强）──
+                    from src.tools.redaction import detect_sensitive, redact
+                    user_redact_map = {}
+                    if config.redaction_enabled:
+                        matches = detect_sensitive(message, config.redaction_rules)
+                        if matches:
+                            message, user_redact_map = redact(message, matches)
 
-                    # 文件 RAG 检索（从 ChromaDB 取当前会话相关片段）
-                    file_context = retrieve_file_context(session_id, message, config)
+                    # 中间状态：告知用户正在处理
+                    history_display[-1] = {"role": "assistant", "content": "⏳ **正在检索和分析，请稍候...**"}
+                    yield history_display, gr.update(), session_id, "", "", gr.update()
+                    yield history_display, gr.update(), session_id, "", "", gr.update()
 
-                    # 构建 LLM
+                    # 意图感知检索（含 query 改写、意图路由、长期记忆）
+                    from src.agent.chat import chat_stream, smart_retrieve
                     llm = _build_chat_llm(config)
+
+                    file_context, long_term_memory, file_redact_map = smart_retrieve(
+                        session_id, message, config, llm, history
+                    )
+                    merged_redact_map = {**user_redact_map, **file_redact_map}
 
                     # 流式生成（usage 收集 token 用量供费用记录）
                     accumulated = ""
                     usage = {}
+                    used_fallback = False
                     try:
-                        for chunk in chat_stream(history, message, llm, file_context, usage_out=usage):
+                        for chunk in chat_stream(
+                            history, message, llm, file_context, long_term_memory, usage_out=usage
+                        ):
                             accumulated += chunk
-                            history_display[-1] = {"role": "assistant", "content": accumulated}
+                            # 展示时还原脱敏占位符
+                            display_text = restore_redactions(accumulated, merged_redact_map)
+                            history_display[-1] = {"role": "assistant", "content": display_text}
                             yield history_display, gr.update(), session_id, "", "", gr.update()
+                        used_fallback = usage.get("used_fallback", False)
                     except Exception as exc:
                         accumulated = f"⚠️ 生成失败：{exc}"
                         history_display[-1] = {"role": "assistant", "content": accumulated}
                         yield history_display, gr.update(), session_id, "", "", gr.update()
 
-                    # 持久化：user + assistant 两条消息
-                    store.add_message(session_id, "user", message)
-                    store.add_message(session_id, "assistant", accumulated)
+                    # API 调用失败、自动切换本地模型时，给用户提示
+                    if used_fallback:
+                        fallback_notice = "\n\n> ⚠️ **API 调用失败，已自动切换为本地模型**（回答质量可能降低）"
+                        display_text = restore_redactions(accumulated, merged_redact_map) + fallback_notice
+                        history_display[-1] = {"role": "assistant", "content": display_text}
+                        yield history_display, gr.update(), session_id, "", "", gr.update()
+
+                    # 持久化：存储脱敏后内容 + redact_map（敏感信息不落库）
+                    store.add_message(session_id, "user", message, redact_map=user_redact_map or None)
+                    store.add_message(session_id, "assistant", accumulated, redact_map=merged_redact_map or None)
+
+                    # 持久化到 conversation_memory 向量集合
+                    if getattr(config, 'conversation_memory_enabled', True):
+                        try:
+                            from src.agent.memory import store_conversation_turn
+                            from src.knowledge.embedder import OllamaEmbedder
+                            from src.knowledge.store import KnowledgeStore
+                            store_conv = KnowledgeStore(persist_dir=config.knowledge_chroma_dir)
+                            embedder = OllamaEmbedder(
+                                base_url=config.knowledge_embed_base_url,
+                                model=config.knowledge_embed_model,
+                            )
+                            store_conversation_turn(store_conv, embedder, session_id, message, accumulated)
+                        except Exception as exc:
+                            logger.warning("对话记忆持久化失败: %s", exc)
 
                     # 记录本轮费用到 data/logs/chat_costs.jsonl（供 _compute_total_spent 实时统计）
                     _log_chat_cost(session_id, message, accumulated, usage, config)
 
-                    # 更新会话列表（标题可能变了）+ 刷新顶部费用状态条
+                    # 更新会话列表（标题可能变了）+ 刷新当前会话费用状态条
                     new_choices = _session_choices(config)
-                    yield history_display, gr.update(choices=new_choices, value=session_id), session_id, "", "", _render_status_bar(config)
+                    yield history_display, gr.update(choices=new_choices, value=session_id), session_id, "", "", _render_status_bar(config, session_id=session_id)
 
                 def _on_delete(session_id):
                     """删除当前会话。"""
@@ -262,13 +311,13 @@ def build_ui(config: AppConfig):
                 # ── 绑定事件 ──
                 new_btn.click(
                     fn=_on_new_session,
-                    inputs=[new_mode],
-                    outputs=[session_radio, session_header, chatbot, current_session, chat_input, upload_status],
+                    inputs=[],
+                    outputs=[session_radio, session_header, chatbot, current_session, chat_input, upload_status, status_bar],
                 )
                 session_radio.change(
                     fn=_on_switch_session,
                     inputs=[session_radio],
-                    outputs=[chatbot, session_header, current_session, chat_input],
+                    outputs=[chatbot, session_header, current_session, chat_input, status_bar],
                 )
                 file_input.change(
                     fn=_on_upload,
@@ -303,13 +352,20 @@ def build_ui(config: AppConfig):
 
                 # 页面初始化：如有会话自动选中第一个
                 def _init_chat():
+                    from src.workflow.postprocess import restore_redactions
                     choices = _session_choices(config)
                     if choices:
                         first_id = choices[0][1]
                         store = SessionStore()
                         s = store.get_session(first_id)
                         msgs = store.get_messages(first_id)
-                        display = [{"role": m["role"], "content": m["content"]} for m in msgs]
+                        display = []
+                        for m in msgs:
+                            content = m["content"]
+                            rm = m.get("redact_map")
+                            if rm:
+                                content = restore_redactions(content, rm)
+                            display.append({"role": m["role"], "content": content})
                         return (
                             gr.update(choices=choices, value=first_id),
                             _render_session_header(s) if s else '<div class="status-bar">请选择会话</div>',
@@ -506,46 +562,50 @@ def _session_choices(config: AppConfig) -> list:
     sessions = store.list_sessions()
     choices = []
     for s in sessions:
-        mode_label = _MODE_LABEL.get(s["mode"], s["mode"])
         title = s["title"]
         count = s.get("message_count", 0)
-        label = f"[{mode_label}] {title} ({count}条)"
+        label = f"{title} ({count}条)"
         choices.append((label, s["id"]))
     return choices
 
 
 def _render_session_header(session: dict) -> str:
-    """渲染会话头 HTML（标题 + 模式 + 消息数）。"""
+    """渲染会话头 HTML（标题 + 消息数 + 隐私状态）。"""
     if not session:
         return '<div class="status-bar">请选择会话</div>'
-    mode_label = _MODE_LABEL.get(session["mode"], session["mode"])
     count = session.get("message_count", 0)
     title = session["title"]
     return (
         f'<div class="status-bar">'
         f'<strong>{title}</strong> &nbsp;|&nbsp; '
-        f'模式: <strong>{mode_label}</strong> &nbsp;|&nbsp; '
+        f'🔒 隐私增强 &nbsp;|&nbsp; '
         f'消息数: <strong>{count}</strong>'
         f'</div>'
     )
 
 
-def _render_status_bar(config: AppConfig) -> str:
+def _render_status_bar(config: AppConfig, session_id: str | None = None) -> str:
     """渲染顶部费用/余额状态条。"""
-    total_spent = _compute_total_spent(config)
-    balance, balance_src = _fetch_balance(config)
+    total_spent = _compute_total_spent(config, session_id=session_id)
+    balance, balance_src = _fetch_balance(config, session_id=session_id)
     balance_color = "#16a34a" if balance > 0 else "#dc2626"
+    label = "会话费用" if session_id else "累计费用"
     return (
         f'<div class="status-bar">'
-        f'💰 累计费用: <strong>¥{total_spent:.4f}</strong> &nbsp;|&nbsp; '
+        f'💰 {label}: <strong>¥{total_spent:.4f}</strong> &nbsp;|&nbsp; '
         f'🪙 余额: <strong style="color:{balance_color}">¥{balance:.4f}</strong>'
         f'（{balance_src}）'
         f'</div>'
     )
 
 
-def _index_uploaded_files(files, session_id: str, config: AppConfig) -> int:
+def _index_uploaded_files(files, session_id: str, config: AppConfig, mode: str = "quick") -> int:
     """上传文件 → 解析 → 分块 → embed → 存 ChromaDB（带 session_id，供 RAG 检索）。
+
+    根据 mode 处理敏感信息：
+      - quick: 原始文本（当前行为）
+      - privacy_enhanced / manual_confirm: 先脱敏再分块入库
+      - local_fallback: 跳过，不索引
 
     Returns:
         索引的文件块数。
@@ -553,6 +613,9 @@ def _index_uploaded_files(files, session_id: str, config: AppConfig) -> int:
     from src.knowledge.embedder import OllamaEmbedder
     from src.knowledge.indexer import Indexer
     from src.knowledge.store import COLLECTION_SESSION_FILES, KnowledgeStore
+
+    if mode == "local_fallback":
+        return 0
 
     store = KnowledgeStore(persist_dir=config.knowledge_chroma_dir)
     embedder = OllamaEmbedder(
@@ -563,15 +626,30 @@ def _index_uploaded_files(files, session_id: str, config: AppConfig) -> int:
 
     added = 0
     for f in files:
-        path = f.name if hasattr(f, "name") else str(f)
+        path = getattr(f, "path", None) or getattr(f, "name", None) or str(f)
         try:
             text = Path(path).read_text(encoding="utf-8")
         except Exception:
             continue
         if not text.strip():
             continue
-        chunks = Indexer._chunk_text(text, 8000)
-        for i, chunk in enumerate(chunks):
+
+        # privacy_enhanced / manual_confirm: 脱敏后入库，持久化 redact_map
+        redact_map_json = None
+        if mode in ("privacy_enhanced", "manual_confirm"):
+            from src.tools.redaction import detect_sensitive, redact
+            matches = detect_sensitive(text, config.redaction_rules)
+            if matches:
+                text, rm = redact(text, matches)
+                import json as _json
+                redact_map_json = _json.dumps(rm, ensure_ascii=False)
+
+        # 父子分块：子块用于 embedding，父块用于召回时返回完整上下文
+        child_size = getattr(config, 'hierarchical_chunk_child_size', 4000)
+        parent_size = getattr(config, 'hierarchical_chunk_parent_size', 12000)
+        hierarchical = Indexer._chunk_text_hierarchical(text, child_size, parent_size)
+        for i, chunk_info in enumerate(hierarchical):
+            chunk = chunk_info["child"]
             emb = embedder.embed(chunk)
             if emb is None:
                 continue
@@ -579,7 +657,11 @@ def _index_uploaded_files(files, session_id: str, config: AppConfig) -> int:
             store.add(
                 col,
                 [chunk],
-                [{"session_id": session_id, "source": Path(path).name, "chunk_index": i}],
+                [{"session_id": session_id, "source": Path(path).name,
+                  "chunk_index": i,
+                  "parent_content": chunk_info["parent"][:5000],
+                  "redact_map": redact_map_json,
+                  "chunk_version": Indexer.CHUNK_VERSION}],
                 [doc_id],
                 [emb],
             )
@@ -648,44 +730,47 @@ def _log_chat_cost(session_id, query, response, usage, config: AppConfig):
         f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _compute_total_spent(config: AppConfig) -> float:
-    """扫描 data/logs/ 下所有费用记录计算累计费用。
+def _compute_total_spent(config: AppConfig, session_id: str | None = None) -> float:
+    """扫描 data/logs/ 下费用记录计算累计费用。
 
-    两个来源：
-    - run-*.jsonl：run_task 工作流执行（字段 total_cost_yuan）
-    - chat_costs.jsonl：多轮对话执行（字段 cost_yuan）
+    Args:
+        session_id: 若提供，只统计该会话的 chat_costs；否则统计全部。
     """
     import json as _json
     logs_dir = Path("data/logs")
     total = 0.0
     if logs_dir.exists():
-        # 来源1：run_task 的 RunLog
-        for fp in logs_dir.glob("run-*.jsonl"):
-            try:
-                first = fp.read_text(encoding="utf-8").split("\n")[0]
-                total += float(_json.loads(first).get("total_cost_yuan", 0))
-            except Exception:
-                pass
-        # 来源2：多轮对话的 chat_costs
+        # 来源1：run_task 的 RunLog（只在无 session_id 时统计）
+        if not session_id:
+            for fp in logs_dir.glob("run-*.jsonl"):
+                try:
+                    first = fp.read_text(encoding="utf-8").split("\n")[0]
+                    total += float(_json.loads(first).get("total_cost_yuan", 0))
+                except Exception:
+                    pass
+        # 来源2：多轮对话的 chat_costs（按 session_id 过滤）
         chat_cost_path = logs_dir / "chat_costs.jsonl"
         if chat_cost_path.exists():
             try:
                 for line in chat_cost_path.read_text(encoding="utf-8").strip().split("\n"):
                     if line.strip():
-                        total += float(_json.loads(line).get("cost_yuan", 0))
+                        entry = _json.loads(line)
+                        if session_id and entry.get("session_id") != session_id:
+                            continue
+                        total += float(entry.get("cost_yuan", 0))
             except Exception:
                 pass
     return total
 
 
-def _fetch_balance(config: AppConfig) -> tuple[float, str]:
+def _fetch_balance(config: AppConfig, session_id: str | None = None) -> tuple[float, str]:
     """获取余额信息。返回 (余额, 来源标签)。"""
     from src.tools.cost import fetch_real_balance
 
     real = fetch_real_balance(config.api_key, config.model_base_url)
     if real is not None:
         return real, "DeepSeek API"
-    total_spent = _compute_total_spent(config)
+    total_spent = _compute_total_spent(config, session_id=session_id)
     return config.budget_yuan - total_spent, "本地估算"
 
 

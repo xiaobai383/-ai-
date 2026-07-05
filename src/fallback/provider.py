@@ -15,6 +15,20 @@ from pydantic import ConfigDict
 logger = logging.getLogger(__name__)
 
 
+def _is_ollama_available(base_url: str, timeout: int = 3) -> bool:
+    """快速检测 Ollama 是否可用（不重试，超时短）。"""
+    import httpx
+    try:
+        # 去掉 /v1 后缀拿 Ollama 根地址
+        root_url = base_url.rstrip("/")
+        if root_url.endswith("/v1"):
+            root_url = root_url[:-3]
+        resp = httpx.get(f"{root_url}/api/tags", timeout=timeout)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 class FallbackChatModel(BaseChatModel):
     """兼容 LangChain 的聊天模型，失败时回退到 Ollama。
 
@@ -35,7 +49,7 @@ class FallbackChatModel(BaseChatModel):
     api_key: str = ""
     fallback_base_url: str = "http://localhost:11434/v1"
     fallback_model: str = "qwen2.5:1.5b"
-    timeout: int = 10
+    timeout: int = 30
 
     # 运行时状态 — 每次调用后设置
     used_fallback: bool = False
@@ -74,7 +88,12 @@ class FallbackChatModel(BaseChatModel):
             result = self._build_primary()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             return result
         except Exception as e:
-            logger.warning("主 LLM (%s) 失败：%s。正在回退到 Ollama。", self.primary_model, e)
+            logger.warning("主 LLM (%s) 失败：%s", self.primary_model, e)
+
+        # 快速检测 Ollama 是否可用，不可用则直接抛主 API 的错误
+        if not _is_ollama_available(self.fallback_base_url):
+            logger.error("Ollama 不可用，无法兜底")
+            raise
 
         try:
             result = self._build_fallback()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
@@ -100,7 +119,12 @@ class FallbackChatModel(BaseChatModel):
                 yield chunk
             return
         except Exception as e:
-            logger.warning("主 LLM 流式 (%s) 失败：%s。正在回退到 Ollama。", self.primary_model, e)
+            logger.warning("主 LLM 流式 (%s) 失败：%s", self.primary_model, e)
+
+        # 快速检测 Ollama 是否可用，不可用则直接抛主 API 的错误
+        if not _is_ollama_available(self.fallback_base_url):
+            logger.error("Ollama 不可用，无法兜底")
+            raise
 
         # 回退流式
         try:

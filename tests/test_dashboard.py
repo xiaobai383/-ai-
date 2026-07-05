@@ -9,7 +9,6 @@ from src.dashboard.charts import (
     cost_trend_chart,
     mode_pie_chart,
     model_pie_chart,
-    token_bar_chart,
 )
 from src.observability.run_log import RunLog, StepLog
 
@@ -120,17 +119,4 @@ class TestCharts:
 
     def test_model_pie_empty(self):
         fig = model_pie_chart({})
-        assert fig is not None
-
-    def test_token_bar_with_data(self):
-        data = [
-            DailyStats(date="2025-01-01", tokens_in=100, tokens_out=50),
-            DailyStats(date="2025-01-02", tokens_in=200, tokens_out=80),
-        ]
-        fig = token_bar_chart(data)
-        assert fig is not None
-        assert len(fig.data) > 0
-
-    def test_token_bar_empty(self):
-        fig = token_bar_chart([])
         assert fig is not None

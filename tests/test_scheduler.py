@@ -50,19 +50,6 @@ class TestPresetSchedules:
             assert "trigger" in preset, f"预设 {name} 缺少 trigger"
             assert preset["trigger"] in ("cron", "interval"), f"预设 {name} trigger 类型无效"
 
-    def test_from_preset_daily_9am(self):
-        """daily_9am 预设正确。"""
-        job = JobStore.from_preset("daily_9am", query="测试")
-        assert job.name == "每天 9:00"
-        assert job.trigger_type == "cron"
-        assert job.trigger_kwargs["hour"] == 9
-        assert job.query == "测试"
-
-    def test_from_preset_invalid(self):
-        """无效预设抛出 ValueError。"""
-        with pytest.raises(ValueError):
-            JobStore.from_preset("nonexistent")
-
 
 class TestJobStore:
     """JobStore 持久化测试。"""

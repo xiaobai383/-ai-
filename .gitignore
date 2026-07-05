@@ -1,5 +1,6 @@
 .env
 .reasonix/
+.mimocode/
 .workbuddy/
 reasonix.toml
 AGENTS.md

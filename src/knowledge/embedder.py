@@ -49,7 +49,7 @@ class OllamaEmbedder:
             return self._available
 
         try:
-            resp = requests.get(f"{self._base_url}/api/tags", timeout=5)
+            resp = requests.get(f"{self._base_url}/api/tags", timeout=5, proxies={"http": None, "https": None})
             if resp.status_code != 200:
                 self._available = False
                 self._last_check = now
@@ -87,6 +87,7 @@ class OllamaEmbedder:
                     f"{self._base_url}/api/embeddings",
                     json={"model": self._model, "prompt": text},
                     timeout=self._timeout,
+                    proxies={"http": None, "https": None},
                 )
                 self._last_embed_time = time.time()
                 resp.raise_for_status()
@@ -99,7 +100,3 @@ class OllamaEmbedder:
                 else:
                     logger.warning("Ollama embed failed after 3 attempts: %s", e)
                     return None
-
-    def embed_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
-        """逐个为多个文本生成 embedding（Ollama 批量 API 因模型而异）。"""
-        return [self.embed(t) for t in texts]

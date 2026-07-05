@@ -136,39 +136,3 @@ class JobStore:
             return True
         return False
 
-    @classmethod
-    def from_preset(cls, preset_name: str, **overrides) -> ScheduledJob:
-        """从预设模板创建 ScheduledJob。
-
-        Args:
-            preset_name: PRESET_SCHEDULES 中的键之一。
-            **overrides: 覆盖默认字段（如 query, file_paths）。
-
-        Returns:
-            已配置的 ScheduledJob。
-
-        Raises:
-            ValueError: 如果预设名称无效。
-        """
-        preset = PRESET_SCHEDULES.get(preset_name)
-        if not preset:
-            raise ValueError(
-                f"无效预设 '{preset_name}'。可用: {list(PRESET_SCHEDULES)}"
-            )
-
-        trigger_type = preset["trigger"]
-        trigger_kwargs = {k: v for k, v in preset.items() if k not in ("label", "trigger")}
-
-        job = ScheduledJob(
-            name=preset["label"],
-            schedule_preset=preset_name,
-            trigger_type=trigger_type,
-            trigger_kwargs=trigger_kwargs,
-        )
-
-        # 应用覆盖
-        for k, v in overrides.items():
-            if hasattr(job, k):
-                setattr(job, k, v)
-
-        return job

@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 COLLECTION_RUNLOG = "runlog"
 COLLECTION_OUTPUTS = "outputs"
 COLLECTION_SESSION_FILES = "session_files"  # 会话上传文件的向量检索（RAG 注入）
+COLLECTION_CONVERSATION_MEMORY = "conversation_memory"  # 对话长期记忆
 
 
 class KnowledgeStore:

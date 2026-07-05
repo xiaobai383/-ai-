@@ -54,11 +54,18 @@ class AppConfig:
     knowledge_embed_base_url: str = "http://localhost:11434"
     knowledge_default_top_k: int = 5
 
+    # v1.1 新增 — 对话记忆 + 检索优化
+    conversation_memory_enabled: bool = True
+    query_rewrite_enabled: bool = True
+    query_rewrite_use_llm: bool = True
+    hierarchical_chunk_child_size: int = 4000
+    hierarchical_chunk_parent_size: int = 12000
+
     # v1.0 新增 — 本地模型兜底
     fallback_enabled: bool = True
     fallback_ollama_base_url: str = "http://localhost:11434/v1"
     fallback_ollama_model: str = "qwen2.5:1.5b"
-    fallback_timeout_seconds: int = 10
+    fallback_timeout_seconds: int = 30
 
     @classmethod
     def from_yaml_and_env(cls, yaml_path: str | None = None) -> "AppConfig":
@@ -152,6 +159,14 @@ class AppConfig:
             config.knowledge_embed_model = knowledge_cfg.get("embed_model", config.knowledge_embed_model)
             config.knowledge_embed_base_url = knowledge_cfg.get("embed_base_url", config.knowledge_embed_base_url)
             config.knowledge_default_top_k = knowledge_cfg.get("default_top_k", config.knowledge_default_top_k)
+
+            # v1.1 新增 — 对话记忆 + 检索优化
+            memory_cfg = raw.get("memory", {})
+            config.conversation_memory_enabled = memory_cfg.get("conversation_memory_enabled", config.conversation_memory_enabled)
+            config.query_rewrite_enabled = memory_cfg.get("query_rewrite_enabled", config.query_rewrite_enabled)
+            config.query_rewrite_use_llm = memory_cfg.get("query_rewrite_use_llm", config.query_rewrite_use_llm)
+            config.hierarchical_chunk_child_size = memory_cfg.get("chunk_child_size", config.hierarchical_chunk_child_size)
+            config.hierarchical_chunk_parent_size = memory_cfg.get("chunk_parent_size", config.hierarchical_chunk_parent_size)
 
             # v1.0 新增 — 本地模型兜底
             fallback_cfg = raw.get("fallback", {})

@@ -104,36 +104,6 @@ def model_pie_chart(model_dist: Dict[str, int]) -> go.Figure:
     return fig
 
 
-def token_bar_chart(daily_data: list) -> go.Figure:
-    """堆叠柱状图：每日 Token 输入/输出。
-
-    参数：
-        daily_data：DailyStats 列表或字典列表。
-
-    返回：
-        Plotly Figure。
-    """
-    if not daily_data:
-        return _empty_chart("暂无数据", "")
-
-    dates = [d.date if hasattr(d, 'date') else d.get('date', '') for d in daily_data]
-    tokens_in = [d.tokens_in if hasattr(d, 'tokens_in') else d.get('tokens_in', 0) for d in daily_data]
-    tokens_out = [d.tokens_out if hasattr(d, 'tokens_out') else d.get('tokens_out', 0) for d in daily_data]
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=dates, y=tokens_in, name="输入 Token", marker_color="#6366f1"))
-    fig.add_trace(go.Bar(x=dates, y=tokens_out, name="输出 Token", marker_color="#a5b4fc"))
-    fig.update_layout(
-        title="Token 消耗趋势",
-        xaxis_title="日期",
-        yaxis_title="Token 数量",
-        barmode="stack",
-        margin=dict(l=40, r=20, t=40, b=40),
-        height=250,
-    )
-    return fig
-
-
 def _empty_chart(title: str, subtitle: str = "") -> go.Figure:
     """当没有数据时返回占位图表。"""
     fig = go.Figure()

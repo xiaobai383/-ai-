@@ -362,3 +362,47 @@ class Indexer:
             chunks.append("\n\n".join(current))
 
         return chunks
+
+    # 分块版本号 — 存入 ChromaDB 元数据，用于增量迁移
+    CHUNK_VERSION = "v2_hierarchical"
+
+    @staticmethod
+    def _chunk_text_hierarchical(
+        text: str, child_size: int = 4000, parent_size: int = 12000,
+    ) -> List[dict]:
+        """分层分块：子块用于 embedding，父块用于召回时返回完整上下文。
+
+        Returns:
+            [{"child": str, "parent": str, "child_index": int}, ...]
+        """
+        child_chunks = Indexer._chunk_text(text, child_size)
+        parent_chunks = Indexer._chunk_text(text, parent_size)
+
+        # 为每个子块找到包含它的父块（按字符偏移匹配）
+        child_offsets = []
+        offset = 0
+        for child in child_chunks:
+            idx = text.find(child[:80], offset)
+            child_offsets.append(idx if idx >= 0 else offset)
+            offset = idx if idx >= 0 else offset
+
+        parent_offsets = []
+        offset = 0
+        for parent in parent_chunks:
+            idx = text.find(parent[:80], offset)
+            parent_offsets.append(idx if idx >= 0 else offset)
+            offset = idx if idx >= 0 else offset
+
+        result = []
+        for ci, child in enumerate(child_chunks):
+            c_off = child_offsets[ci]
+            best_parent = parent_chunks[-1]
+            for pi, p_off in enumerate(parent_offsets):
+                if c_off >= p_off:
+                    best_parent = parent_chunks[pi]
+            result.append({
+                "child": child,
+                "parent": best_parent,
+                "child_index": ci,
+            })
+        return result

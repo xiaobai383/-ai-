@@ -114,13 +114,15 @@ class SessionStore:
             json.dumps(messages, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    def add_message(self, session_id: str, role: str, content: str) -> Dict[str, Any]:
+    def add_message(self, session_id: str, role: str, content: str,
+                    redact_map: dict | None = None) -> Dict[str, Any]:
         """追加一条消息，返回该消息。同时更新会话 message_count + updated_at。"""
         msg = {
             "id": f"msg-{uuid.uuid4().hex[:8]}",
             "role": role,
             "content": content,
             "timestamp": int(time.time() * 1000),
+            "redact_map": redact_map,
         }
         messages = self._load_messages(session_id)
         messages.append(msg)

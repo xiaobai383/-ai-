@@ -153,11 +153,6 @@ class TestOllamaEmbedder:
         mock_post.side_effect = req.RequestException("boom")
         assert embedder.embed("hello") is None
 
-    def test_embed_batch(self, embedder):
-        embedder._available = False
-        results = embedder.embed_batch(["a", "b", "c"])
-        assert results == [None, None, None]
-
 
 # ── Indexer tests ──
 

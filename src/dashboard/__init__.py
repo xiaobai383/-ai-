@@ -4,7 +4,6 @@ from src.dashboard.charts import (
     cost_trend_chart,
     mode_pie_chart,
     model_pie_chart,
-    token_bar_chart,
 )
 
 __all__ = [
@@ -14,5 +13,4 @@ __all__ = [
     "cost_trend_chart",
     "mode_pie_chart",
     "model_pie_chart",
-    "token_bar_chart",
 ]

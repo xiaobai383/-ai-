@@ -121,21 +121,3 @@ class RunLog:
 
         return run
 
-    def save_to_disk(self, path) -> Path:
-        """将此 RunLog 持久化为 JSONL 文件。
-
-        Args:
-            path: 目标文件路径（目录或完整路径）。
-
-        Returns:
-            已写入文件的路径。
-        """
-        p = Path(path)
-        if p.is_dir() or str(p).endswith("/") or str(p).endswith("\\"):
-            p.mkdir(parents=True, exist_ok=True)
-            p = p / f"{self.run_id}.jsonl"
-        else:
-            p.parent.mkdir(parents=True, exist_ok=True)
-
-        p.write_text(self.to_jsonl(), encoding="utf-8")
-        return p

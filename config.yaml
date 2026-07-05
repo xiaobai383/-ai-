@@ -4,7 +4,6 @@ model:
 
 limits:
   max_file_size_mb: 5
-  max_tool_calls_per_request: 15
   max_tokens_per_request: 50000
   max_cost_per_request_yuan: 0.5
 
@@ -36,9 +35,6 @@ output:
 
 workflow:
   templates_dir: workflows
-
-preferences:
-  dir: data/preferences
 
 api:
   host: 127.0.0.1
