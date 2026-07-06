@@ -45,19 +45,6 @@ def make_phone_match():
 class TestDecideUploadStrategy:
     """Tests for upload strategy decision logic."""
 
-    # --- Quick mode ---
-
-    def test_quick_mode_no_sensitive(self, config):
-        doc = make_doc()
-        decision = decide_upload_strategy(doc, "quick", config)
-        assert decision.strategy == "full"
-
-    def test_quick_mode_with_sensitive(self, config):
-        """Quick mode ignores sensitive info — still full send."""
-        doc = make_doc([make_phone_match()])
-        decision = decide_upload_strategy(doc, "quick", config)
-        assert decision.strategy == "full"
-
     # --- Privacy enhanced mode ---
 
     def test_privacy_enhanced_no_sensitive(self, config):
@@ -79,20 +66,6 @@ class TestDecideUploadStrategy:
         decision = decide_upload_strategy(doc, "privacy_enhanced", config)
         assert decision.strategy == "redacted"
 
-    # --- Manual confirmation mode ---
-
-    def test_manual_confirm_no_sensitive(self, config):
-        doc = make_doc()
-        decision = decide_upload_strategy(doc, "manual_confirm", config)
-        assert decision.strategy == "chunks"
-        assert decision.needs_confirmation is True
-
-    def test_manual_confirm_with_sensitive(self, config):
-        doc = make_doc([make_phone_match()])
-        decision = decide_upload_strategy(doc, "manual_confirm", config)
-        assert decision.strategy == "chunks"
-        assert decision.needs_confirmation is True
-
     # --- Local fallback mode ---
 
     def test_local_fallback(self, config):
@@ -107,11 +80,11 @@ class TestDecideUploadStrategy:
 
     # --- Unknown mode ---
 
-    def test_unknown_mode_defaults_to_manual_confirm(self, config):
+    def test_unknown_mode_defaults_to_privacy_enhanced(self, config):
         doc = make_doc()
         decision = decide_upload_strategy(doc, "unknown_mode", config)
-        # Should fall back to safest default
-        assert decision.strategy in ("chunks", "blocked")
+        # 未知模式回退到默认脱敏（隐私增强）
+        assert decision.strategy == "full"
 
 
 class TestUploadDecision:

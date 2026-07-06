@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 @dataclass
 class AppConfig:
-    """AI 工作流助手的统一配置中心。"""
+    """Hush 的统一配置中心。"""
 
     model_name: str = "deepseek-v4-flash"
     model_base_url: str = "https://api.deepseek.com/v1"
@@ -28,7 +28,6 @@ class AppConfig:
 
     # v0.2 新增
     default_output_format: str = "markdown"
-    workflows_dir: str = "workflows"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     gradio_port: int = 7860
@@ -40,7 +39,6 @@ class AppConfig:
     watch_patterns: List[str] = field(default_factory=list)
     watch_trigger_mode: str = "instant"
     watch_batch_window_seconds: int = 60
-    watch_workflow_template: str = "summarize"
     watch_mode: str = "privacy_enhanced"
     scheduler_enabled: bool = False
     scheduler_jobs_dir: str = "data/scheduled_jobs"
@@ -119,9 +117,6 @@ class AppConfig:
             output_cfg = raw.get("output", {})
             config.default_output_format = output_cfg.get("format", config.default_output_format)
 
-            workflow_cfg = raw.get("workflow", {})
-            config.workflows_dir = workflow_cfg.get("templates_dir", config.workflows_dir)
-
             api_cfg = raw.get("api", {})
             config.api_host = api_cfg.get("host", config.api_host)
             config.api_port = api_cfg.get("port", config.api_port)
@@ -136,9 +131,6 @@ class AppConfig:
             config.watch_trigger_mode = watch_cfg.get("trigger_mode", config.watch_trigger_mode)
             config.watch_batch_window_seconds = watch_cfg.get(
                 "batch_window_seconds", config.watch_batch_window_seconds
-            )
-            config.watch_workflow_template = watch_cfg.get(
-                "workflow_template", config.watch_workflow_template
             )
             config.watch_mode = watch_cfg.get("mode", config.watch_mode)
 

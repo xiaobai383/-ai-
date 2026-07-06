@@ -406,3 +406,62 @@ class Indexer:
                 "child_index": ci,
             })
         return result
+
+
+def index_session_files(files, session_id: str, config, mode: str = "privacy_enhanced") -> int:
+    """上传文件 → 解析 → 分块 → embed → 存 ChromaDB（带 session_id，供 RAG 检索）。
+
+    供 FastAPI 会话文件上传与 RAG 检索共用。
+    """
+    from src.knowledge.store import COLLECTION_SESSION_FILES, KnowledgeStore
+
+    if mode == "local_fallback":
+        return 0
+
+    store = KnowledgeStore(persist_dir=config.knowledge_chroma_dir)
+    embedder = OllamaEmbedder(
+        base_url=config.knowledge_embed_base_url,
+        model=config.knowledge_embed_model,
+    )
+    col = store.get_or_create(COLLECTION_SESSION_FILES)
+
+    added = 0
+    for f in files:
+        path = getattr(f, "path", None) or getattr(f, "name", None) or str(f)
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except Exception:
+            continue
+        if not text.strip():
+            continue
+
+        redact_map_json = None
+        if mode == "privacy_enhanced":
+            from src.tools.redaction import detect_sensitive, redact
+            matches = detect_sensitive(text, config.redaction_rules)
+            if matches:
+                text, rm = redact(text, matches)
+                redact_map_json = json.dumps(rm, ensure_ascii=False)
+
+        child_size = getattr(config, 'hierarchical_chunk_child_size', 4000)
+        parent_size = getattr(config, 'hierarchical_chunk_parent_size', 12000)
+        hierarchical = Indexer._chunk_text_hierarchical(text, child_size, parent_size)
+        for i, chunk_info in enumerate(hierarchical):
+            chunk = chunk_info["child"]
+            emb = embedder.embed(chunk)
+            if emb is None:
+                continue
+            doc_id = f"{session_id}:{Path(path).name}:{i}"
+            store.add(
+                col,
+                [chunk],
+                [{"session_id": session_id, "source": Path(path).name,
+                  "chunk_index": i,
+                  "parent_content": chunk_info["parent"][:5000],
+                  "redact_map": redact_map_json,
+                  "chunk_version": Indexer.CHUNK_VERSION}],
+                [doc_id],
+                [emb],
+            )
+            added += 1
+    return added

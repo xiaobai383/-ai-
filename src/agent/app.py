@@ -1,6 +1,7 @@
 """Agent 编排 —— run_task 主入口点。"""
 import time
 import uuid
+from dataclasses import asdict
 from typing import Any, Callable, List
 
 from src.agent.prompts import SYSTEM_PROMPT
@@ -12,6 +13,23 @@ from src.workflow.preprocess import preprocess
 from src.workflow.upload_policy import decide_upload_strategy, generate_preview
 
 
+class _StepCallbackList(list):
+    """list 子类：append StepLog 时自动触发 step_callback（SSE 步骤推送用）。
+
+    ponytail: 替换 RunLog.steps 默认 list，让 11 处 append 自动推送，
+    避免每处各加一行回调（diff 更小且不会漏点）。
+    """
+
+    def __init__(self, callback=None):
+        super().__init__()
+        self._cb = callback
+
+    def append(self, item):
+        super().append(item)
+        if self._cb:
+            self._cb(asdict(item))
+
+
 def run_task(
     query: str,
     files: List[str],
@@ -21,6 +39,7 @@ def run_task(
     auto_confirm: bool = False,
     output_format: str = "markdown",
     stream_callback: Callable[[str], None] | None = None,
+    step_callback: Callable[[dict], None] | None = None,
 ) -> RunLog:
     """执行完整工作流：预处理 → 上传策略 → LLM → 后处理。
 
@@ -29,7 +48,7 @@ def run_task(
     Args:
         query: 用户的自然语言请求。
         files: 待处理的文件路径列表。
-        mode: 模式之一：'quick'、'privacy_enhanced'、'manual_confirm'、'local_fallback'。
+        mode: 模式之一：'privacy_enhanced'（默认，脱敏上传）、'local_fallback'（本地处理）。
         config: AppConfig 实例。
         llm: LangChain 兼容的聊天模型。若为 None，则使用占位符。
         auto_confirm: 跳过用户确认步骤（用于测试/自动化）。
@@ -44,6 +63,7 @@ def run_task(
         mode=mode,
         model=config.model_name,
     )
+    run_log.steps = _StepCallbackList(step_callback)
     cumulative_tokens_in = 0
     cumulative_cost = 0.0
 

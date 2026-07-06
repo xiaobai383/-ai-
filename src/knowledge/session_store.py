@@ -95,6 +95,16 @@ class SessionStore:
                 break
         self._save_sessions(sessions)
 
+    def update_session_mode(self, session_id: str, mode: str) -> None:
+        """切换会话隐私模式：privacy_enhanced（脱敏）/ local_fallback（本地）。"""
+        sessions = self._load_sessions()
+        for s in sessions:
+            if s["id"] == session_id:
+                s["mode"] = mode
+                s["updated_at"] = int(time.time() * 1000)
+                break
+        self._save_sessions(sessions)
+
     # ── 消息 ──
 
     def _msg_file(self, session_id: str) -> Path:

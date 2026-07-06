@@ -44,22 +44,6 @@ def test_get_config(client):
     assert "allowed_paths" in data
 
 
-def test_list_templates(client):
-    """Test templates listing endpoint."""
-    response = client.get("/templates")
-
-    assert response.status_code == 200
-    templates = response.json()
-    assert isinstance(templates, list)
-
-
-def test_get_nonexistent_template(client):
-    """Test getting a non-existent template."""
-    response = client.get("/templates/nonexistent_xyz")
-
-    assert response.status_code == 404
-
-
 def test_create_task_missing_query(client):
     """Test creating a task without query."""
     response = client.post("/tasks", json={

@@ -1,15 +1,83 @@
-"""FastAPI 应用 — AI 工作流助手的 REST API。"""
+"""FastAPI 应用 — Hush 的 REST API。"""
+import asyncio
 import json
+import logging
+import tempfile
+import threading
 import time
+from dataclasses import asdict
 from pathlib import Path as PathLib
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.agent.app import run_task
 from src.config import AppConfig
-from src.workflow.templates import load_workflow_template, list_templates
+
+logger = logging.getLogger(__name__)
+
+
+def _build_chat_llm(config: AppConfig):
+    """构建对话用 LLM（云端优先 + Ollama 兜底），未配置 api_key 返回 None。"""
+    if not config.api_key or "sk-fake" in config.api_key:
+        return None
+    if config.fallback_enabled:
+        from src.fallback.provider import FallbackChatModel
+        return FallbackChatModel(
+            primary_model=config.model_name,
+            primary_base_url=config.model_base_url,
+            api_key=config.api_key,
+            fallback_base_url=config.fallback_ollama_base_url,
+            fallback_model=config.fallback_ollama_model,
+            timeout=config.fallback_timeout_seconds,
+        )
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model=config.model_name,
+        api_key=config.api_key,
+        base_url=config.model_base_url,
+        temperature=0.3,
+    )
+
+
+def _build_local_llm(config: AppConfig):
+    """构建纯本地 LLM（Ollama），不可用返回 None。"""
+    from src.fallback.provider import _is_ollama_available
+    if not _is_ollama_available(config.fallback_ollama_base_url):
+        return None
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model=config.fallback_ollama_model,
+        api_key="ollama",
+        base_url=config.fallback_ollama_base_url,
+        temperature=0.3,
+        timeout=60,
+    )
+
+
+def _log_chat_cost(session_id, query, response, usage, config: AppConfig):
+    """记录对话费用到 data/logs/chat_costs.jsonl。"""
+    from src.tools.cost import estimate_cost
+    tokens_in = usage.get("tokens_in", 0)
+    tokens_out = usage.get("tokens_out", 0)
+    cost = estimate_cost(tokens_in, tokens_out, config.model_name) if (tokens_in or tokens_out) else 0.0
+    entry = {
+        "timestamp": int(time.time() * 1000),
+        "session_id": session_id,
+        "query": query[:200],
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cost_yuan": cost,
+        "model": config.model_name,
+        "fallback": usage.get("used_fallback", False),
+    }
+    log_path = PathLib("data/logs/chat_costs.jsonl")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # ── Pydantic 模型 ──
@@ -19,7 +87,6 @@ class TaskRequest(BaseModel):
     query: str
     mode: str = "privacy_enhanced"
     files: List[str] = []
-    workflow_template: Optional[str] = None
     output_format: str = "markdown"
 
 
@@ -34,13 +101,6 @@ class TaskResponse(BaseModel):
     cost_yuan: float = 0.0
     duration_ms: int = 0
     steps: List[dict] = []
-
-
-class TemplateInfo(BaseModel):
-    """工作流模板信息。"""
-    name: str
-    description: str
-    steps: List[str]
 
 
 class HealthResponse(BaseModel):
@@ -103,6 +163,45 @@ class BatchResponse(BaseModel):
     errors: List[str]
 
 
+# ── 会话/对话相关模型 ──
+
+class SettingsResponse(BaseModel):
+    """设置信息响应。"""
+    model_name: str
+    model_base_url: str
+    api_key_masked: str
+    fallback_enabled: bool
+    fallback_ollama_base_url: str
+    fallback_ollama_model: str
+
+
+class SettingsUpdate(BaseModel):
+    """更新设置请求（所有字段可选）。"""
+    model_name: Optional[str] = None
+    model_base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    fallback_enabled: Optional[bool] = None
+    fallback_ollama_base_url: Optional[str] = None
+    fallback_ollama_model: Optional[str] = None
+
+
+class SessionCreate(BaseModel):
+    """创建会话请求。"""
+    title: str = "新建会话"
+    mode: str = "privacy_enhanced"
+
+
+class SessionRename(BaseModel):
+    """重命名会话/切换模式请求。"""
+    title: str
+    mode: Optional[str] = None
+
+
+class MessageSend(BaseModel):
+    """发送对话消息请求。"""
+    message: str
+
+
 # ── 应用工厂 ──
 
 def create_api_app(config: AppConfig) -> FastAPI:
@@ -115,13 +214,35 @@ def create_api_app(config: AppConfig) -> FastAPI:
         配置好的 FastAPI 实例。
     """
     app = FastAPI(
-        title="个人 AI 工作流助手 API",
-        description="可控上传、可审计执行的 AI 工作流助手",
+        title="Hush API",
+        description="隐私优先的个人 AI 工作流助手",
         version="1.0.0",
     )
 
     # 将配置存入应用状态
     app.state.config = config
+
+    # CORS：Vue 前端（:5173）跨域访问 FastAPI（:8000）
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ponytail: API 处理文件需要允许的路径白名单。Gradio 端只加了系统临时目录，
+    # API 端此前完全没初始化，导致 allowed_paths 为空、任何路径都被拒。
+    # 启动时一次性注入：临时目录（/tasks/upload 落盘处）+ 项目根 + data/uploads。
+    _tmp = str(PathLib(tempfile.gettempdir()))
+    if _tmp not in config.allowed_paths:
+        config.allowed_paths.append(_tmp)
+    _project_root = str(PathLib(__file__).resolve().parent.parent.parent)
+    if _project_root not in config.allowed_paths:
+        config.allowed_paths.append(_project_root)
+    _uploads = str(PathLib("data/uploads").resolve())
+    if _uploads not in config.allowed_paths:
+        config.allowed_paths.append(_uploads)
 
     @app.get("/health", response_model=HealthResponse)
     async def health_check():
@@ -130,6 +251,47 @@ def create_api_app(config: AppConfig) -> FastAPI:
             status="healthy",
             version="1.0.0",
             model=config.model_name,
+        )
+
+    @app.get("/settings", response_model=SettingsResponse)
+    async def get_settings():
+        """获取当前设置。"""
+        key = config.api_key
+        masked = key[:8] + "****" + key[-4:] if len(key) > 12 else ("****" if key else "")
+        return SettingsResponse(
+            model_name=config.model_name,
+            model_base_url=config.model_base_url,
+            api_key_masked=masked,
+            fallback_enabled=config.fallback_enabled,
+            fallback_ollama_base_url=config.fallback_ollama_base_url,
+            fallback_ollama_model=config.fallback_ollama_model,
+        )
+
+    @app.patch("/settings", response_model=SettingsResponse)
+    async def update_settings(req: SettingsUpdate):
+        """更新设置并持久化到 config.yaml。"""
+        if req.model_name is not None:
+            config.model_name = req.model_name
+        if req.model_base_url is not None:
+            config.model_base_url = req.model_base_url
+        if req.api_key is not None:
+            config.api_key = req.api_key
+        if req.fallback_enabled is not None:
+            config.fallback_enabled = req.fallback_enabled
+        if req.fallback_ollama_base_url is not None:
+            config.fallback_ollama_base_url = req.fallback_ollama_base_url
+        if req.fallback_ollama_model is not None:
+            config.fallback_ollama_model = req.fallback_ollama_model
+        config.save_to_yaml()
+        key = config.api_key
+        masked = key[:8] + "****" + key[-4:] if len(key) > 12 else ("****" if key else "")
+        return SettingsResponse(
+            model_name=config.model_name,
+            model_base_url=config.model_base_url,
+            api_key_masked=masked,
+            fallback_enabled=config.fallback_enabled,
+            fallback_ollama_base_url=config.fallback_ollama_base_url,
+            fallback_ollama_model=config.fallback_ollama_model,
         )
 
     @app.post("/tasks", response_model=TaskResponse)
@@ -143,18 +305,6 @@ def create_api_app(config: AppConfig) -> FastAPI:
             包含 RunLog 详细信息的任务执行结果。
         """
         start_time = time.time()
-
-        # 如果指定了工作流模板，则加载它
-        workflow_steps = None
-        if request.workflow_template:
-            try:
-                template = load_workflow_template(request.workflow_template)
-                workflow_steps = template.get("steps", [])
-            except FileNotFoundError:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Workflow template '{request.workflow_template}' not found",
-                )
 
         # 如果已配置，则构建 LLM
         llm = None
@@ -218,6 +368,7 @@ def create_api_app(config: AppConfig) -> FastAPI:
                         "tokens_in": s.tokens_in,
                         "tokens_out": s.tokens_out,
                         "cost_yuan": s.cost_yuan,
+                        "output_preview": s.output_preview,
                     }
                     for s in run_log.steps
                 ],
@@ -274,45 +425,79 @@ def create_api_app(config: AppConfig) -> FastAPI:
 
         return result
 
-    @app.get("/templates", response_model=List[TemplateInfo])
-    async def get_templates():
-        """列出所有可用的工作流模板。
+    @app.post("/tasks/stream")
+    async def stream_task(
+        query: str = Form(...),
+        mode: str = Form("privacy_enhanced"),
+        output_format: str = Form("markdown"),
+        files: List[UploadFile] = File(...),
+    ):
+        """SSE 流式执行任务：上传文件 → run_task → 实时推送步骤/token/done。
 
-        Returns:
-            模板信息列表。
+        事件协议：{type:"step",...} / {type:"token",text} / {type:"done",...} / {type:"error",message}
         """
-        templates = list_templates()
-        return [
-            TemplateInfo(
-                name=t["name"],
-                description=t.get("description", ""),
-                steps=[s.get("name", "") for s in t.get("steps", [])],
-            )
-            for t in templates
-        ]
+        # 先把上传文件落盘到临时目录，拿到服务器路径
+        temp_dir = PathLib(tempfile.mkdtemp())
+        file_paths = []
+        for uploaded in files:
+            fp = temp_dir / uploaded.filename
+            fp.write_bytes(await uploaded.read())
+            file_paths.append(str(fp))
 
-    @app.get("/templates/{template_name}", response_model=TemplateInfo)
-    async def get_template(template_name: str):
-        """获取指定的工作流模板。
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
 
-        Args:
-            template_name: 模板名称。
+        def push(evt):
+            loop.call_soon_threadsafe(queue.put_nowait, evt)
 
-        Returns:
-            模板详细信息。
-        """
-        try:
-            template = load_workflow_template(template_name)
-            return TemplateInfo(
-                name=template["name"],
-                description=template.get("description", ""),
-                steps=[s.get("name", "") for s in template.get("steps", [])],
-            )
-        except FileNotFoundError:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Template '{template_name}' not found",
-            )
+        def run_in_thread():
+            try:
+                llm = _build_chat_llm(config)
+                run_log = run_task(
+                    query=query,
+                    files=file_paths,
+                    mode=mode,
+                    config=config,
+                    llm=llm,
+                    auto_confirm=True,
+                    output_format=output_format,
+                    step_callback=lambda s: push({**s, "type": "step"}),
+                    stream_callback=lambda t: push({"type": "token", "text": t}),
+                )
+                result_preview = None
+                if run_log.result_path:
+                    rf = PathLib(run_log.result_path)
+                    if rf.exists():
+                        content = rf.read_text(encoding="utf-8")
+                        result_preview = content[:500] + ("..." if len(content) > 500 else "")
+                push({
+                    "type": "done",
+                    "run_id": run_log.run_id,
+                    "result_path": run_log.result_path,
+                    "result_preview": result_preview,
+                    "tokens_in": run_log.total_tokens_in,
+                    "tokens_out": run_log.total_tokens_out,
+                    "cost_yuan": run_log.total_cost_yuan,
+                    "fallback": run_log.fallback,
+                    "steps": [asdict(s) for s in run_log.steps],
+                })
+            except Exception as e:
+                push({"type": "error", "message": str(e)})
+            finally:
+                push(None)
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
+
+        async def event_gen():
+            while True:
+                evt = await queue.get()
+                if evt is None:
+                    break
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(event_gen(), media_type="text/event-stream")
 
     @app.get("/config")
     async def get_config():
@@ -358,16 +543,8 @@ def create_api_app(config: AppConfig) -> FastAPI:
             return {"status": "already_running", "message": "Watcher is already running"}
 
         def _on_change(files: List[str]) -> None:
-            """处理文件变更 — 加载模板并为每个文件触发 run_task。"""
-            from src.workflow.templates import load_workflow_template
-
-            try:
-                template = load_workflow_template(
-                    config.watch_workflow_template, config.workflows_dir
-                )
-                query = template.get("description", config.watch_workflow_template)
-            except FileNotFoundError:
-                query = config.watch_workflow_template
+            """处理文件变更 — 为每个变更文件触发 run_task。"""
+            query = "请总结以下变更文件的内容："
 
             for f in files:
                 try:
@@ -741,5 +918,359 @@ def create_api_app(config: AppConfig) -> FastAPI:
             ],
             "recent_tasks": stats.recent_tasks,
         }
+
+    # ── v1.2：多轮对话 API（会话管理 + 消息 + 文件上传）──
+
+    from src.knowledge.session_store import SessionStore
+
+    @app.get("/sessions")
+    async def list_sessions():
+        """列出所有会话，按最近活跃倒序。"""
+        store = SessionStore()
+        sessions = [{**s, "session_id": s["id"]} for s in store.list_sessions()]
+        return {"sessions": sessions, "total": len(sessions)}
+
+    @app.post("/sessions")
+    async def create_session(req: SessionCreate):
+        """创建新会话。"""
+        store = SessionStore()
+        session = store.create_session(mode=req.mode, title=req.title)
+        return {**session, "session_id": session["id"]}
+
+    @app.get("/sessions/{session_id}")
+    async def get_session(session_id: str):
+        """获取单个会话元数据。"""
+        store = SessionStore()
+        s = store.get_session(session_id)
+        if not s:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {**s, "session_id": s["id"]}
+
+    @app.delete("/sessions/{session_id}")
+    async def delete_session(session_id: str):
+        """删除会话（列表 + 消息文件）。"""
+        store = SessionStore()
+        store.delete_session(session_id)
+        return {"status": "deleted", "session_id": session_id}
+
+    @app.patch("/sessions/{session_id}")
+    async def rename_session(session_id: str, req: SessionRename):
+        """重命名会话，可选切换隐私模式。"""
+        store = SessionStore()
+        store.rename_session(session_id, req.title)
+        if req.mode is not None:
+            store.update_session_mode(session_id, req.mode)
+        s = store.get_session(session_id)
+        return {**s, "session_id": s["id"]} if s else None
+
+    @app.get("/sessions/{session_id}/messages")
+    async def get_messages(session_id: str):
+        """获取会话全部消息，按时间正序。展示时还原脱敏占位符。"""
+        from src.workflow.postprocess import restore_redactions
+        store = SessionStore()
+        if not store.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        msgs = store.get_messages(session_id)
+        display = []
+        for m in msgs:
+            content = m["content"]
+            rm = m.get("redact_map")
+            if rm:
+                content = restore_redactions(content, rm)
+            display.append({"role": m["role"], "content": content, "timestamp": m["timestamp"]})
+        return {"messages": display, "total": len(display)}
+
+    @app.post("/sessions/{session_id}/upload")
+    async def upload_files(session_id: str, files: List[UploadFile] = File(...)):
+        """上传文件到指定会话（向量化存 ChromaDB，供 RAG 检索）。"""
+        from src.knowledge.indexer import index_session_files
+
+        store = SessionStore()
+        if not store.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # 保存上传文件到临时目录
+        import tempfile
+        tmp_dir = PathLib(tempfile.mkdtemp())
+        saved = []
+        for f in files:
+            fp = tmp_dir / f.filename
+            fp.write_bytes(await f.read())
+            saved.append(fp)
+
+        session = store.get_session(session_id)
+        mode = session.get("mode", "privacy_enhanced") if session else "privacy_enhanced"
+        added = index_session_files(saved, session_id, config, mode=mode)
+
+        # 清理临时文件
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        return {"session_id": session_id, "chunks_indexed": added}
+
+    @app.get("/sessions/{session_id}/cost")
+    async def get_session_cost(session_id: str):
+        """获取会话的 token 消耗统计和账户余额。"""
+        from src.tools.cost import fetch_real_balance
+
+        store = SessionStore()
+        if not store.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # 从日志中汇总该会话的消耗
+        log_path = PathLib("data/logs/chat_costs.jsonl")
+        total_tokens_in = 0
+        total_tokens_out = 0
+        total_cost = 0.0
+        if log_path.exists():
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                    if entry.get("session_id") == session_id:
+                        total_tokens_in += entry.get("tokens_in", 0)
+                        total_tokens_out += entry.get("tokens_out", 0)
+                        total_cost += entry.get("cost_yuan", 0.0)
+                except Exception:
+                    continue
+
+        # 查询真实余额
+        balance = fetch_real_balance(config.api_key, config.model_base_url)
+
+        return {
+            "session_id": session_id,
+            "tokens_in": total_tokens_in,
+            "tokens_out": total_tokens_out,
+            "cost_yuan": round(total_cost, 6),
+            "balance_yuan": balance,
+            "budget_yuan": config.budget_yuan,
+        }
+
+    @app.post("/sessions/{session_id}/messages")
+    async def send_message(session_id: str, req: MessageSend):
+        """发送消息并获取回复（非流式，含 RAG 检索 + 长期记忆）。
+
+        流程：脱敏 → smart_retrieve（文件检索 + 意图路由 + 长期记忆）
+              → chat_stream（LLM 生成）→ 持久化 → 记录费用。
+        """
+        from src.agent.chat import chat_stream, smart_retrieve
+        from src.workflow.postprocess import restore_redactions
+        from src.tools.redaction import detect_sensitive, redact
+
+        store = SessionStore()
+        if not store.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        message = req.message.strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="消息不能为空")
+
+        # 取历史消息
+        history = store.get_messages(session_id)
+
+        # 脱敏用户输入
+        user_redact_map = {}
+        if config.redaction_enabled:
+            matches = detect_sensitive(message, config.redaction_rules)
+            if matches:
+                message, user_redact_map = redact(message, matches)
+
+        # 根据会话模式构建 LLM
+        session = store.get_session(session_id)
+        session_mode = session.get("mode", "privacy_enhanced") if session else "privacy_enhanced"
+        if session_mode == "local_fallback":
+            llm = _build_local_llm(config)
+            if llm is None:
+                raise HTTPException(status_code=503, detail="本地模型未配置或 Ollama 未运行，请先安装并启动 Ollama")
+        else:
+            llm = _build_chat_llm(config)
+            if llm is None:
+                raise HTTPException(status_code=503, detail="未配置 LLM（api_key 为空），无法生成回复")
+
+        # 意图感知检索
+        file_context, long_term_memory, file_redact_map = smart_retrieve(
+            session_id, message, config, llm, history
+        )
+        merged_redact_map = {**user_redact_map, **file_redact_map}
+
+        # 生成回复（收集完整文本，非流式）
+        accumulated = ""
+        usage = {}
+        try:
+            for chunk in chat_stream(
+                history, message, llm, file_context, long_term_memory, usage_out=usage
+            ):
+                accumulated += chunk
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"生成失败：{exc}")
+
+        # 展示用文本（还原脱敏）
+        display_text = restore_redactions(accumulated, merged_redact_map)
+
+        # 持久化：存脱敏后内容
+        store.add_message(session_id, "user", message, redact_map=user_redact_map or None)
+        store.add_message(session_id, "assistant", accumulated, redact_map=merged_redact_map or None)
+
+        # 持久化对话记忆
+        if getattr(config, 'conversation_memory_enabled', True):
+            try:
+                from src.agent.memory import store_conversation_turn
+                from src.knowledge.embedder import OllamaEmbedder
+                from src.knowledge.store import KnowledgeStore
+                store_conv = KnowledgeStore(persist_dir=config.knowledge_chroma_dir)
+                embedder = OllamaEmbedder(
+                    base_url=config.knowledge_embed_base_url,
+                    model=config.knowledge_embed_model,
+                )
+                store_conversation_turn(store_conv, embedder, session_id, message, accumulated)
+            except Exception as e:
+                logger.warning("对话记忆持久化失败: %s", e)
+
+        # 记录费用
+        _log_chat_cost(session_id, message, accumulated, usage, config)
+
+        return {
+            "session_id": session_id,
+            "reply": display_text,
+            "used_fallback": usage.get("used_fallback", False),
+            "tokens_in": usage.get("tokens_in", 0),
+            "tokens_out": usage.get("tokens_out", 0),
+        }
+
+    @app.post("/sessions/{session_id}/messages/stream")
+    async def send_message_stream(session_id: str, req: MessageSend):
+        """SSE 流式发送消息，逐字推送 LLM 回复。
+
+        复用 smart_retrieve + chat_stream；token 事件逐字推送，done 事件含 token/费用。
+        持久化（SessionStore + 对话记忆 + 费用）在流结束后统一执行。
+        """
+        from src.agent.chat import chat_stream, smart_retrieve
+        from src.tools.redaction import detect_sensitive, redact
+        from src.workflow.postprocess import restore_redactions
+
+        store = SessionStore()
+        if not store.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        message = req.message.strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="消息不能为空")
+
+        history = store.get_messages(session_id)
+
+        # 根据会话模式构建 LLM
+        session = store.get_session(session_id)
+        session_mode = session.get("mode", "privacy_enhanced") if session else "privacy_enhanced"
+        if session_mode == "local_fallback":
+            llm = _build_local_llm(config)
+            if llm is None:
+                raise HTTPException(status_code=503, detail="本地模型未配置或 Ollama 未运行，请先安装并启动 Ollama")
+        else:
+            llm = _build_chat_llm(config)
+            if llm is None:
+                raise HTTPException(status_code=503, detail="未配置 LLM（api_key 为空），无法生成回复")
+
+        # 脱敏用户输入
+        user_redact_map = {}
+        if config.redaction_enabled:
+            matches = detect_sensitive(message, config.redaction_rules)
+            if matches:
+                message, user_redact_map = redact(message, matches)
+
+        file_context, long_term_memory, file_redact_map = smart_retrieve(
+            session_id, message, config, llm, history
+        )
+        merged_redact_map = {**user_redact_map, **file_redact_map}
+
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def push(evt):
+            loop.call_soon_threadsafe(queue.put_nowait, evt)
+
+        def run_in_thread():
+            import time as _t
+            accumulated = ""
+            usage = {}
+            try:
+                # 思考过程步骤推送（供前端步骤时间线展示「思考过程」）
+                push({"type": "step", "step_id": 1, "name": "redact_input", "status": "success",
+                      "duration_ms": 0, "input_preview": "",
+                      "output_preview": f"脱敏 {len(user_redact_map)} 项",
+                      "tokens_in": 0, "tokens_out": 0, "cost_yuan": 0})
+                push({"type": "step", "step_id": 2, "name": "retrieve", "status": "success",
+                      "duration_ms": 0, "input_preview": message[:80],
+                      "output_preview": f"文件上下文 {len(file_context)} 字",
+                      "tokens_in": 0, "tokens_out": 0, "cost_yuan": 0})
+                t0 = _t.time()
+                # 流式逐块推送；占位符实时还原为原文，避免用户看到 ORG_1 之类占位符。
+                # ponytail: 每 chunk 推送已累积文本的完整还原版（O(n²)，对话回复量级可接受）；
+                #           升级路径：改为增量 diff 推送以降低长回复带宽。
+                for chunk in chat_stream(
+                    history, message, llm, file_context, long_term_memory, usage_out=usage
+                ):
+                    accumulated += chunk
+                    push({"type": "token", "text": restore_redactions(accumulated, merged_redact_map)})
+                push({"type": "step", "step_id": 3, "name": "llm_call", "status": "success",
+                      "duration_ms": int((_t.time() - t0) * 1000), "input_preview": message[:80],
+                      "output_preview": accumulated[:200],
+                      "tokens_in": usage.get("tokens_in", 0), "tokens_out": usage.get("tokens_out", 0),
+                      "cost_yuan": 0})
+                display_text = restore_redactions(accumulated, merged_redact_map)
+                # 持久化
+                store.add_message(session_id, "user", message, redact_map=user_redact_map or None)
+                store.add_message(session_id, "assistant", accumulated, redact_map=merged_redact_map or None)
+                # 对话记忆
+                if getattr(config, "conversation_memory_enabled", True):
+                    try:
+                        from src.agent.memory import store_conversation_turn
+                        from src.knowledge.embedder import OllamaEmbedder
+                        from src.knowledge.store import KnowledgeStore
+
+                        store_conv = KnowledgeStore(persist_dir=config.knowledge_chroma_dir)
+                        embedder = OllamaEmbedder(
+                            base_url=config.knowledge_embed_base_url,
+                            model=config.knowledge_embed_model,
+                        )
+                        store_conversation_turn(store_conv, embedder, session_id, message, accumulated)
+                    except Exception as e:
+                        logger.warning("对话记忆持久化失败: %s", e)
+                _log_chat_cost(session_id, message, accumulated, usage, config)
+                push({
+                    "type": "done",
+                    "reply": display_text,
+                    "used_fallback": usage.get("used_fallback", False),
+                    "tokens_in": usage.get("tokens_in", 0),
+                    "tokens_out": usage.get("tokens_out", 0),
+                })
+            except Exception as e:
+                push({"type": "error", "message": str(e)})
+            finally:
+                push(None)
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
+
+        async def event_gen():
+            while True:
+                evt = await queue.get()
+                if evt is None:
+                    break
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+    # 生产模式：若前端已 build（frontend/dist 存在），直接由 FastAPI serve 静态文件，
+    # 这样只需 `python app.py` 一个进程即可同时提供 API 与前端 UI（无需 npm run dev）。
+    _dist = PathLib(__file__).resolve().parents[2] / "frontend" / "dist"
+    if _dist.is_dir():
+        from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import FileResponse
+
+        app.mount("/assets", StaticFiles(directory=str(_dist / "assets")), name="assets")
+
+        @app.get("/{full_path:path}")
+        async def _serve_spa(full_path: str):
+            return FileResponse(str(_dist / "index.html"))
 
     return app

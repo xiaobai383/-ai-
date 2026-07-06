@@ -57,9 +57,7 @@ def mode_pie_chart(mode_dist: Dict[str, int]) -> go.Figure:
         return _empty_chart("暂无数据", "")
 
     labels_map = {
-        "quick": "快速模式",
-        "privacy_enhanced": "隐私增强",
-        "manual_confirm": "手动确认",
+        "privacy_enhanced": "隐私增强（脱敏）",
         "local_fallback": "本地兜底",
     }
 

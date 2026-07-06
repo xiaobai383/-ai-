@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary: #4F46E5;
+    --primary-light: #6366F1;
+    --primary-lighter: #818CF8;
+    --bg: #F8FAFC;
+    --surface: #FFFFFF;
+    --surface-muted: #F1F5F9;
+    --text: #1E293B;
+    --text-muted: #64748B;
+    --text-faint: #94A3B8;
+    --border: #E2E8F0;
+    --success: #10B981;
+    --danger: #EF4444;
+    --warning: #F59E0B;
+    --info: #3B82F6;
+  }
+
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background: #F8FAFC;
+    color: #1E293B;
+    margin: 0;
+  }
+}
+
+/* 玻璃拟态卡片 */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 流式光标闪烁 */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.stream-cursor::after {
+  content: '▊';
+  animation: blink 1s step-end infinite;
+  color: #6366F1;
+  margin-left: 2px;
+}

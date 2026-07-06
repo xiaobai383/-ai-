@@ -32,6 +32,11 @@ _DETECTION_RULES: List[Tuple[str, str]] = [
     ),
     # 绝对文件路径
     ("PATH", r"(?:[A-Za-z]:\\[^\s,;]+|/(?:home|etc|usr|var|tmp|opt)/[^\s,;]+)"),
+    # 组织/公司名（中文：字号 + 法定后缀；英文：Inc/Corp/Ltd 等）
+    # ponytail: 仅匹配带法定后缀的正式公司名，避免「我们公司」这类误报；
+    #           升级路径：从 config 注入专属词典（如「腾讯」「阿里」）补充无后缀的简称。
+    ("ORG", r"[\u4e00-\u9fa5A-Za-z0-9（）()·]{2,30}(?:有限公司|有限责任公司|股份有限公司|股份公司|集团有限公司|科技有限公司|技术有限公司|株式会社)"),
+    ("ORG", r"[A-Z][A-Za-z0-9&.,' ]{1,40}?\s(?:Inc\.?|Corp\.?|Corporation|Ltd\.?|Limited|LLC|Co\.?|Company)\b"),
     # 中国姓名（2-3 个中文字符，常见姓氏）
     (
         "PERSON",

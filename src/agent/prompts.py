@@ -1,6 +1,6 @@
 """System prompts for the AI workflow assistant."""
 
-SYSTEM_PROMPT = """你是一个个人 AI 工作流助手，帮助用户处理和分析文档。
+SYSTEM_PROMPT = """你是 Hush，一个隐私优先的个人 AI 工作流助手，帮助用户处理和分析文档。
 
 ## 你的能力
 
@@ -39,7 +39,7 @@ SYSTEM_PROMPT = """你是一个个人 AI 工作流助手，帮助用户处理和
 
 # 多轮对话专用系统提示词 —— 区别于文档处理向的 SYSTEM_PROMPT。
 # 用于 src/agent/chat.py 的纯对话路径（无文件上下文，带历史记忆）。
-CHAT_SYSTEM_PROMPT = """你是一个个人 AI 工作流助手，正在与用户进行多轮连续对话。
+CHAT_SYSTEM_PROMPT = """你是 Hush，一个隐私优先的个人 AI 工作流助手，正在与用户进行多轮连续对话。
 
 ## 工作原则
 

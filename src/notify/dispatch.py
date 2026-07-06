@@ -56,7 +56,7 @@ def _notify_plyer(title: str, message: str) -> None:
     notification.notify(
         title=title,
         message=message,
-        app_name="AI 工作流助手",
+        app_name="Hush",
         timeout=5,
     )
 

@@ -35,9 +35,7 @@ def decide_upload_strategy(
     """根据模式和文档内容确定上传策略。
 
     模式说明：
-        quick — 始终发送全文，忽略敏感信息
-        privacy_enhanced — 无敏感信息则发送全文，有则脱敏后发送
-        manual_confirm — 分块发送，始终需要用户确认
+        privacy_enhanced — 默认；无敏感信息则发送全文，有则脱敏后发送
         local_fallback — 完全阻止上传，仅本地处理
 
     参数：
@@ -50,10 +48,7 @@ def decide_upload_strategy(
     """
     has_sensitive = len(doc.sensitive_matches) > 0
 
-    if mode == "quick":
-        return UploadDecision(strategy="full")
-
-    elif mode == "privacy_enhanced":
+    if mode == "privacy_enhanced":
         if has_sensitive:
             # 发送前对敏感信息进行脱敏
             redacted_text, redact_map = redact(doc.raw_text, doc.sensitive_matches)
@@ -65,23 +60,12 @@ def decide_upload_strategy(
         else:
             return UploadDecision(strategy="full")
 
-    elif mode == "manual_confirm":
-        return UploadDecision(
-            strategy="chunks",
-            selected_chunks=list(doc.chunks),
-            needs_confirmation=True,
-        )
-
     elif mode == "local_fallback":
         return UploadDecision(strategy="blocked")
 
     else:
-        # 未知模式 —— 最安全的默认值：手动确认
-        return UploadDecision(
-            strategy="chunks",
-            selected_chunks=list(doc.chunks),
-            needs_confirmation=True,
-        )
+        # 未知模式 —— 默认脱敏（隐私增强）
+        return decide_upload_strategy(doc, "privacy_enhanced", config)
 
 
 def generate_preview(
